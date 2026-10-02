@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<!-- Browser preview of the webview with a fake extension host and sample data.
+     Run `npm run build`, serve the repo root, open /scripts/preview.html. -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roundtable preview</title>
+<style>
+  :root {
+    --vscode-foreground: #cccccc; --vscode-editor-background: #1f1f1f; --vscode-font-family: -apple-system, system-ui, sans-serif;
+    --vscode-font-size: 13px; --vscode-descriptionForeground: #9d9d9d; --vscode-button-foreground: #fff;
+    --vscode-button-background: #0078d4; --vscode-button-hoverBackground: #026ec1; --vscode-button-secondaryForeground: #ccc;
+    --vscode-button-secondaryBackground: #313131; --vscode-button-secondaryHoverBackground: #3c3c3c; --vscode-errorForeground: #f85149;
+    --vscode-input-foreground: #ccc; --vscode-input-background: #313131; --vscode-panel-border: #2b2b2b; --vscode-focusBorder: #0078d4;
+    --vscode-sideBar-background: #181818; --vscode-list-hoverBackground: #2a2d2e; --vscode-editor-inactiveSelectionBackground: #3a3d41;
+    --vscode-editor-font-family: Menlo, monospace; --vscode-editor-font-size: 12px; --vscode-textCodeBlock-background: #2b2b2b;
+    --vscode-textLink-foreground: #4daafc; --vscode-inputValidation-warningBorder: #b89500; --vscode-inputValidation-warningBackground: #352a05;
+  }
+</style>
+<link rel="stylesheet" href="../dist/webview/main.css">
+</head>
+<body>
+<div id="root"></div>
+<script>
+  const cfg = (id, name, color, model, role) => ({ id, name, color, role, model, effort: 'medium', permissionMode: 'default', allowedTools: [], disallowedTools: [], workspaceMode: 'shared' });
+  let agents = [
+    { config: cfg('ada', 'Ada', '#d97757', 'claude-fable-5-1', 'Architect.'), status: 'idle', costUsd: 0.21 },
+    { config: cfg('rex', 'Rex', '#6a9bcc', 'claude-sonnet-5-5', 'Skeptic.'), status: 'speaking', costUsd: 0.09 },
+    { config: cfg('kit', 'Kit', '#788c5d', 'claude-haiku-4-5-20251001', 'Pragmatist.'), status: 'idle', costUsd: 0.02 },
+  ];
+  let id = 1;
+  const messages = [
+    { id: id++, from: 'user', text: 'Should the session cache live in Redis or in-process? @Ada first.', ts: 0 },
+    { id: id++, from: 'ada', text: 'In-process with an interface in front of it. One node today, so Redis buys nothing yet:\n```ts\ninterface SessionStore { get(id: string): Session | undefined }\n```\n@Rex poke holes in that.', ts: 0 },
+    { id: id++, from: 'system', text: 'Sol joined the room.', ts: 0 },
+  ];
+  const send = (m) => window.postMessage(m, '*');
+  window.acquireVsCodeApi = () => ({
+    postMessage(m) {
+      console.log('to host', m);
+      if (m.type === 'ready') {
+        send({ type: 'state', agents, messages, room: { running: true, round: 0, maxRounds: 6, costUsd: 0.32, budgetUsd: 2 },
+          permissions: [{ requestId: '1', agentId: 'rex', toolName: 'Bash', detail: 'Bash: grep -rn "SessionStore" src/', canAlways: true }] });
+        send({ type: 'partial', agentId: 'rex', text: 'Deploys wipe an in-process cache, so every release logs everyone out. Is that acceptable for `v1`?' });
+        send({ type: 'activity', agentId: 'rex', text: 'Grep: SessionStore' });
+      }
+      if (m.type === 'send') send({ type: 'message', message: { id: id++, from: 'user', text: m.text, ts: 0 } });
+      if (m.type === 'permissionResponse') send({ type: 'permissions', permissions: [] });
+      if (m.type === 'saveAgent') { agents = agents.map((a) => a.config.id === m.config.id ? { ...a, config: m.config } : a); send({ type: 'agents', agents }); }
+    },
+  });
+</script>
+<script src="../dist/webview/main.js"></script>
+</body>
+</html>

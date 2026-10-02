@@ -1,0 +1,370 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+}
+
+.app {
+  display: flex;
+  height: 100%;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.title {
+  font-weight: 600;
+}
+
+.hint,
+.agent-meta,
+.meter {
+  color: var(--vscode-descriptionForeground);
+  font-size: 0.9em;
+}
+
+.empty {
+  margin: auto;
+  padding: 32px;
+  max-width: 420px;
+  text-align: center;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* controls */
+
+button {
+  font: inherit;
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.secondary {
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+button.secondary:hover {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+
+button.danger {
+  color: var(--vscode-errorForeground);
+  background: transparent;
+  border-color: var(--vscode-errorForeground);
+}
+
+button.danger:hover {
+  background: color-mix(in srgb, var(--vscode-errorForeground) 15%, transparent);
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  width: 100%;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 4px;
+  padding: 5px 8px;
+}
+
+input[type='color'] {
+  padding: 0;
+  height: 28px;
+  width: 56px;
+}
+
+textarea {
+  resize: vertical;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* header */
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+
+/* roster */
+
+.roster {
+  width: 190px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  overflow-y: auto;
+  border-right: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-sideBar-background);
+}
+
+.roster-title {
+  padding: 4px 8px;
+  text-transform: uppercase;
+  font-size: 0.8em;
+  letter-spacing: 0.05em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.agent {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  text-align: left;
+  padding: 6px 8px;
+  color: var(--vscode-foreground);
+  background: transparent;
+}
+
+.agent:hover:not(:disabled),
+.agent.selected {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.agent.selected {
+  border-color: var(--vscode-focusBorder);
+}
+
+.agent-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.agent-name {
+  font-weight: 600;
+}
+
+.agent-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot.speaking {
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.dot.error {
+  outline: 2px solid var(--vscode-errorForeground);
+  outline-offset: 1px;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.add {
+  margin-top: 8px;
+}
+
+/* transcript */
+
+.transcript {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+
+.msg {
+  max-width: 820px;
+}
+
+.msg.user {
+  align-self: flex-end;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--vscode-editor-inactiveSelectionBackground);
+}
+
+.msg.system {
+  align-self: center;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.msg.live {
+  opacity: 0.85;
+}
+
+.msg-from {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.msg-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.msg-text pre,
+.permission pre {
+  margin: 6px 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  white-space: pre;
+  border-radius: 4px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: var(--vscode-editor-font-size);
+  background: var(--vscode-textCodeBlock-background);
+}
+
+.msg-text code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: var(--vscode-editor-font-family);
+  background: var(--vscode-textCodeBlock-background);
+}
+
+.mention {
+  color: var(--vscode-textLink-foreground);
+  font-weight: 600;
+}
+
+.typing,
+.activity {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+
+.activity {
+  margin-top: 4px;
+  font-size: 0.9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* permission prompt */
+
+.permission {
+  margin: 0 16px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--vscode-inputValidation-warningBorder, var(--vscode-panel-border));
+  border-radius: 6px;
+  background: var(--vscode-inputValidation-warningBackground, transparent);
+}
+
+.permission pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 160px;
+}
+
+/* composer */
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+/* drawer */
+
+.drawer {
+  width: 320px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px;
+  overflow-y: auto;
+  border-left: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-sideBar-background);
+}
+
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.drawer label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9em;
+  color: var(--vscode-descriptionForeground);
+}
+
+@media (max-width: 640px) {
+  .roster {
+    width: 120px;
+  }
+
+  .drawer {
+    position: absolute;
+    inset: 0 0 0 auto;
+    max-width: 100%;
+  }
+}
