@@ -1,0 +1,342 @@
+import type {
+  Options,
+  PermissionResult,
+  PermissionUpdate,
+  Query,
+  SDKMessage,
+  SDKUserMessage,
+} from '@anthropic-ai/claude-agent-sdk';
+import type { AgentConfig } from '../shared/protocol';
+import type { AgentSession, TurnResult } from './Room';
+
+type Sdk = typeof import('@anthropic-ai/claude-agent-sdk');
+
+export type SessionEvent =
+  | { type: 'partial'; text: string }
+  | { type: 'activity'; text: string }
+  | { type: 'started'; sessionId: string; model: string; apiKeySource: string };
+
+export interface SessionContext {
+  sdk: Sdk;
+  claudePath: string | undefined;
+  /** Working directory for this agent (workspace, worktree, or undefined). */
+  resolveCwd(config: AgentConfig): Promise<string | undefined>;
+  env: Record<string, string | undefined>;
+  /** Session id from a previous run, to resume its history. */
+  resumeId: string | undefined;
+  onEvent(event: SessionEvent): void;
+  requestPermission(
+    toolName: string,
+    input: Record<string, unknown>,
+    canAlways: boolean,
+    signal: AbortSignal,
+  ): Promise<'allow' | 'always' | 'deny'>;
+}
+
+const ROOM_SERVER = 'room';
+const PASS_TOOL = `mcp__${ROOM_SERVER}__pass_turn`;
+const READ_ONLY_DENY = ['Edit', 'Write', 'NotebookEdit', 'Bash'];
+
+interface PendingTurn {
+  resolve(result: TurnResult): void;
+  passed: boolean;
+}
+
+/** Unbounded async queue feeding user turns into a streaming-input query(). */
+class InputQueue implements AsyncIterable<SDKUserMessage> {
+  private items: SDKUserMessage[] = [];
+  private waiter: ((r: IteratorResult<SDKUserMessage>) => void) | undefined;
+  private closed = false;
+
+  push(item: SDKUserMessage): void {
+    if (this.waiter) {
+      this.waiter({ value: item, done: false });
+      this.waiter = undefined;
+    } else {
+      this.items.push(item);
+    }
+  }
+
+  close(): void {
+    this.closed = true;
+    this.waiter?.({ value: undefined, done: true });
+    this.waiter = undefined;
+  }
+
+  [Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
+    return {
+      next: () => {
+        const item = this.items.shift();
+        if (item) return Promise.resolve({ value: item, done: false });
+        if (this.closed) return Promise.resolve({ value: undefined, done: true });
+        return new Promise((resolve) => (this.waiter = resolve));
+      },
+    };
+  }
+}
+
+export function buildRolePrompt(config: AgentConfig, roster: AgentConfig[]): string {
+  const others = roster
+    .filter((a) => a.id !== config.id)
+    .map((a) => `- ${a.name}: ${firstLine(a.role) || 'no stated role'}`)
+    .join('\n');
+  return [
+    `You are ${config.name}, one participant in a group room called Roundtable, together with the user and other AI agents.`,
+    others ? `Other agents in the room:\n${others}` : 'You are currently the only agent in the room.',
+    'Room messages arrive as "[Name]: text". Your final reply each turn is posted to the room for everyone to read.',
+    'Speak as yourself in the first person; never prefix your reply with your own name or write lines for other participants.',
+    'Keep replies conversational and short (a few sentences) unless someone asks for detail. Address someone directly with @Name to give them the next turn.',
+    'Engage with what others said: disagree when you disagree, build on good ideas, and do not restate points already made.',
+    `If you have nothing new to add, call the ${PASS_TOOL} tool instead of replying. Do not reply just to agree.`,
+    'There is no interactive question tool here; ask questions in your reply.',
+    config.role.trim() ? `Your role:\n${config.role.trim()}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+}
+
+function firstLine(text: string): string {
+  return text.trim().split('\n')[0]?.slice(0, 160) ?? '';
+}
+
+/** One long-lived Claude Agent SDK session for one room participant. */
+export class SdkAgentSession implements AgentSession {
+  private query: Query | undefined;
+  private input: InputQueue | undefined;
+  private abort: AbortController | undefined;
+  private pending: PendingTurn | undefined;
+  private sessionId: string | undefined;
+  private lastCost = 0;
+  private partial = '';
+  private disposed = false;
+  /** A config change that needs a restart arrived mid-turn. */
+  private restartAfterTurn = false;
+
+  constructor(
+    private config: AgentConfig,
+    private roster: AgentConfig[],
+    private readonly ctx: SessionContext,
+  ) {
+    this.sessionId = ctx.resumeId;
+  }
+
+  async runTurn(prompt: string): Promise<TurnResult> {
+    if (this.disposed) throw new Error('session disposed');
+    if (!this.query) await this.start();
+    return new Promise<TurnResult>((resolve) => {
+      this.pending = { resolve, passed: false };
+      this.partial = '';
+      this.input?.push({
+        type: 'user',
+        message: { role: 'user', content: prompt },
+        parent_tool_use_id: null,
+      });
+    });
+  }
+
+  async interrupt(): Promise<void> {
+    if (this.pending) await this.query?.interrupt();
+  }
+
+  async applyConfig(next: AgentConfig, roster: AgentConfig[]): Promise<void> {
+    const prev = this.config;
+    const prevPrompt = buildRolePrompt(prev, this.roster);
+    this.config = next;
+    this.roster = roster;
+    if (!this.query) return;
+
+    const needsRestart =
+      prevPrompt !== buildRolePrompt(next, roster) ||
+      prev.workspaceMode !== next.workspaceMode ||
+      prev.allowedTools.join() !== next.allowedTools.join() ||
+      prev.disallowedTools.join() !== next.disallowedTools.join();
+    if (needsRestart) {
+      // Restarted lazily on the next turn, resuming the same session id.
+      if (this.pending) this.restartAfterTurn = true;
+      else this.shutdown();
+      return;
+    }
+    if (prev.model !== next.model) await this.query.setModel(next.model);
+    if (prev.permissionMode !== next.permissionMode) await this.query.setPermissionMode(next.permissionMode);
+    if (prev.effort !== next.effort) await this.query.applyFlagSettings({ effortLevel: next.effort });
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.shutdown();
+  }
+
+  private shutdown(): void {
+    this.input?.close();
+    this.abort?.abort();
+    this.query = undefined;
+    this.input = undefined;
+    this.abort = undefined;
+    this.finishTurn({ error: 'session closed' });
+  }
+
+  private async start(): Promise<void> {
+    const { sdk } = this.ctx;
+    const config = this.config;
+    const roomServer = sdk.createSdkMcpServer({
+      name: ROOM_SERVER,
+      version: '1.0.0',
+      tools: [
+        sdk.tool(
+          'pass_turn',
+          'Pass your turn: you have nothing new to add to the room right now.',
+          {},
+          async () => {
+            if (this.pending) this.pending.passed = true;
+            return { content: [{ type: 'text', text: 'Turn passed. End your turn now without further text.' }] };
+          },
+          // Keep the tool in the prompt so agents need no tool search to pass.
+          { alwaysLoad: true },
+        ),
+      ],
+    });
+
+    const disallowed = ['AskUserQuestion', ...config.disallowedTools];
+    if (config.workspaceMode === 'read-only') disallowed.push(...READ_ONLY_DENY);
+
+    const options: Options = {
+      model: config.model,
+      effort: config.effort,
+      permissionMode: config.permissionMode,
+      // snapshot: false so edits to the role or roster apply when the session resumes.
+      systemPrompt: {
+        type: 'preset',
+        preset: 'claude_code',
+        append: buildRolePrompt(config, this.roster),
+        snapshot: false,
+      },
+      allowedTools: [PASS_TOOL, ...config.allowedTools],
+      disallowedTools: disallowed,
+      mcpServers: { [ROOM_SERVER]: roomServer },
+      // Project settings only: load the workspace CLAUDE.md, but keep the
+      // user's personal plugins and hooks out of room agents.
+      settingSources: ['project'],
+      includePartialMessages: true,
+      cwd: await this.ctx.resolveCwd(config),
+      env: this.ctx.env,
+      pathToClaudeCodeExecutable: this.ctx.claudePath,
+      resume: this.sessionId,
+      abortController: (this.abort = new AbortController()),
+      canUseTool: (toolName, input, opts) => this.canUseTool(toolName, input, opts.signal, opts.suggestions),
+    };
+
+    this.input = new InputQueue();
+    this.query = sdk.query({ prompt: this.input, options });
+    void this.pump(this.query);
+  }
+
+  private async canUseTool(
+    toolName: string,
+    input: Record<string, unknown>,
+    signal: AbortSignal,
+    suggestions: PermissionUpdate[] | undefined,
+  ): Promise<PermissionResult> {
+    if (toolName.startsWith(`mcp__${ROOM_SERVER}__`)) return { behavior: 'allow', updatedInput: input };
+    const canAlways = !!suggestions && suggestions.length > 0;
+    const decision = await this.ctx.requestPermission(toolName, input, canAlways, signal);
+    if (decision === 'deny') {
+      return { behavior: 'deny', message: 'The user denied this action. Do not retry it; say what you wanted to do instead.' };
+    }
+    return {
+      behavior: 'allow',
+      updatedInput: input,
+      updatedPermissions: decision === 'always' ? suggestions : undefined,
+    };
+  }
+
+  private async pump(query: Query): Promise<void> {
+    try {
+      for await (const message of query) {
+        if (query !== this.query) return;
+        this.handle(message);
+      }
+      if (query === this.query) this.crashed('session ended unexpectedly');
+    } catch (err) {
+      if (query === this.query) this.crashed(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  private crashed(reason: string): void {
+    this.query = undefined;
+    this.input = undefined;
+    this.finishTurn({ error: reason });
+  }
+
+  private handle(m: SDKMessage): void {
+    switch (m.type) {
+      case 'system':
+        if (m.subtype === 'init') {
+          this.sessionId = m.session_id;
+          this.ctx.onEvent({ type: 'started', sessionId: m.session_id, model: m.model, apiKeySource: m.apiKeySource });
+        }
+        break;
+      case 'stream_event': {
+        if (m.parent_tool_use_id !== null) break;
+        const event = m.event;
+        if (event.type === 'message_start') {
+          // Show only the latest assistant message of the turn while streaming.
+          this.partial = '';
+        } else if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+          this.partial += event.delta.text;
+          this.ctx.onEvent({ type: 'partial', text: this.partial });
+        }
+        break;
+      }
+      case 'assistant':
+        if (m.parent_tool_use_id !== null) break;
+        for (const block of m.message.content) {
+          if (block.type === 'tool_use' && block.name !== PASS_TOOL) {
+            this.ctx.onEvent({ type: 'activity', text: describeToolUse(block.name, block.input) });
+          }
+        }
+        break;
+      case 'result':
+        this.lastCost = m.total_cost_usd;
+        if (m.subtype === 'success' && !m.is_error) {
+          this.finishTurn({ text: m.result });
+        } else {
+          this.finishTurn({ error: m.subtype === 'success' ? m.result || 'request failed' : m.subtype });
+        }
+        break;
+    }
+  }
+
+  private finishTurn(outcome: { text?: string; error?: string }): void {
+    const pending = this.pending;
+    if (!pending) return;
+    this.pending = undefined;
+    pending.resolve({
+      text: outcome.text ?? '',
+      passed: pending.passed,
+      costUsd: this.lastCost,
+      error: outcome.error,
+    });
+    if (this.restartAfterTurn) {
+      this.restartAfterTurn = false;
+      this.shutdown();
+    }
+  }
+}
+
+/** One-line description of a tool call for the activity line and permission prompts. */
+export function describeToolUse(name: string, input: unknown): string {
+  const obj = (input ?? {}) as Record<string, unknown>;
+  const detail =
+    pickString(obj, ['command', 'file_path', 'path', 'pattern', 'url', 'query', 'description', 'prompt']) ??
+    JSON.stringify(obj);
+  const short = detail.length > 300 ? `${detail.slice(0, 300)}…` : detail;
+  return short && short !== '{}' ? `${name}: ${short}` : name;
+}
+
+function pickString(obj: Record<string, unknown>, keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === 'string' && value) return value;
+  }
+  return undefined;
+}
