@@ -1,0 +1,77 @@
+{
+  "name": "roundtable",
+  "version": "0.0.1",
+  "description": "Local Claude agents talking to each other in one room, each with its own model and settings.",
+  "main": "./dist/extension.js",
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p webview",
+    "test": "vitest run",
+    "spike": "node scripts/spike.mjs",
+    "e2e": "esbuild scripts/e2e.ts --bundle --platform=node --format=esm --external:@anthropic-ai/claude-agent-sdk --outfile=dist/e2e.mjs --log-level=warning && node dist/e2e.mjs",
+    "preview": "node esbuild.mjs && node scripts/serve.mjs"
+  },
+  "author": "Amin",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.287",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/vscode": "^1.100.0",
+    "esbuild": "^0.28.2",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  },
+  "displayName": "Roundtable",
+  "private": true,
+  "publisher": "insanustu",
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "AI",
+    "Chat"
+  ],
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "roundtable.open",
+        "title": "Roundtable: Open Room"
+      },
+      {
+        "command": "roundtable.setApiKey",
+        "title": "Roundtable: Set API Key (fallback auth)"
+      }
+    ],
+    "configuration": {
+      "title": "Roundtable",
+      "properties": {
+        "roundtable.maxRounds": {
+          "type": "number",
+          "default": 6,
+          "minimum": 1,
+          "description": "Maximum debate rounds after each user message before agents stop."
+        },
+        "roundtable.budgetUsd": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0,
+          "description": "Room spend cap in USD (estimated). Debate stops when reached. 0 disables the cap."
+        },
+        "roundtable.claudePath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the Claude Code executable. Empty = auto-detect."
+        }
+      }
+    }
+  }
+}
