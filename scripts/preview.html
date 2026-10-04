@@ -35,18 +35,54 @@
     { id: id++, from: 'ada', text: 'In-process with an interface in front of it. One node today, so Redis buys nothing yet:\n```ts\ninterface SessionStore { get(id: string): Session | undefined }\n```\n@Rex poke holes in that.', ts: 0 },
     { id: id++, from: 'system', text: 'Sol joined the room.', ts: 0 },
   ];
+  const entry = (id, title, summary, layer, enabled, status, fields = [], config = {}, applies = true) => ({ id, title, summary, layer, applies, enabled, status, config, fields });
+  let guardrails = {
+    profile: 'TypeScript · npm · vitest · eslint · git', hasWorkspace: true,
+    presets: [
+      { id: 'solo', title: 'Solo', summary: 'Safety net only: dangerous shell commands, protected files, secrets.', guardrailIds: ['bash-safety', 'protected-paths', 'secrets-scan'] },
+      { id: 'team', title: 'Team', summary: 'Solo + quality gates and project knowledge.', guardrailIds: ['bash-safety', 'protected-paths', 'secrets-scan', 'typecheck-gate', 'lint-gate', 'tests-gate', 'agents-md', 'adr', 'definition-of-done'] },
+      { id: 'factory', title: 'Factory', summary: 'Team + boundaries, enforced ADRs, reviewer veto, spec-first, worktrees.', guardrailIds: [] },
+    ],
+    file: { preset: 'team', enabled: {}, disabled: ['lint-gate'] },
+    entries: [
+      entry('bash-safety', 'Shell safety', 'Blocks force pushes, recursive deletes outside the project, curl-into-shell, sudo.', 'gate', true, 'ready',
+        [{ key: 'allowInstalls', label: 'Allow package installs', type: 'boolean' }, { key: 'extraDeny', label: 'Extra denied patterns (regex)', type: 'list' }], { allowInstalls: false, extraDeny: [] }),
+      entry('protected-paths', 'Protected paths', 'Agents cannot edit files matching these globs.', 'gate', true, 'ready', [{ key: 'globs', label: 'Protected globs', type: 'list' }], { globs: ['.env', '.env.*', 'package-lock.json'] }),
+      entry('secrets-scan', 'Secrets scan', 'Flags API keys and private keys the moment they are written.', 'gate', true, 'ready'),
+      entry('typecheck-gate', 'Typecheck gate', 'Runs tsc after TypeScript edits and before an agent may finish.', 'gate', true, 'ready', [{ key: 'command', label: 'Command', type: 'text' }], { command: 'tsc --noEmit -p tsconfig.json' }),
+      entry('lint-gate', 'Lint gate', 'Runs eslint on the files an agent changed.', 'gate', false, 'ready', [{ key: 'maxWarnings', label: 'Max warnings', type: 'number' }], { maxWarnings: 0 }),
+      entry('tests-gate', 'Tests gate', 'Runs the test suite before an agent that changed code may finish.', 'gate', true, 'ready', [{ key: 'when', label: 'Run', type: 'select', options: ['whenEdited', 'always', 'off'] }], { when: 'whenEdited' }),
+      entry('boundaries', 'Module boundaries', 'dependency-cruiser enforces docs/architecture.yml.', 'gate', false, 'missing-tool'),
+      entry('agents-md', 'AGENTS.md', 'Project instructions every agent reads.', 'knowledge', true, 'needs-setup'),
+      entry('architecture-map', 'Architecture map', 'docs/architecture.yml lists modules and allowed imports.', 'knowledge', false, 'needs-setup'),
+      entry('adr', 'Architecture decision records', 'Agents record architecture decisions in docs/adr.', 'knowledge', true, 'needs-setup', [{ key: 'enforce', label: 'Block turns that change architecture files without an ADR', type: 'boolean' }], { enforce: false }),
+      entry('definition-of-done', 'Definition of done', 'A checklist every implementation turn must satisfy.', 'knowledge', true, 'ready'),
+      entry('reviewer-veto', 'Reviewer veto', 'One read-only reviewer must approve before others may edit.', 'process', false, 'needs-setup'),
+      entry('spec-first', 'Spec first', 'Agents must submit a spec you approve before any code changes.', 'process', false, 'ready'),
+      entry('worktree-per-implementer', 'Worktree per implementer', 'Every editing agent works in its own git worktree.', 'process', false, 'needs-setup'),
+    ],
+    setup: [
+      { kind: 'write', description: 'Create AGENTS.md from detected commands and layout', detail: 'AGENTS.md' },
+      { kind: 'write', description: 'Create docs/adr with the first ADR', detail: 'docs/adr/0001-record-architecture-decisions.md' },
+    ],
+    busy: false,
+  };
   const send = (m) => window.postMessage(m, '*');
   window.acquireVsCodeApi = () => ({
     postMessage(m) {
       console.log('to host', m);
       if (m.type === 'ready') {
-        send({ type: 'state', agents, messages, room: { running: true, round: 0, maxRounds: 6, costUsd: 0.32, budgetUsd: 2 },
-          permissions: [{ requestId: '1', agentId: 'rex', toolName: 'Bash', detail: 'Bash: grep -rn "SessionStore" src/', canAlways: true }] });
+        send({ type: 'state', agents, messages, room: { running: true, round: 0, maxRounds: 6, costUsd: 0.32, budgetUsd: 2, locks: { review: 'awaiting reviewer approval' } },
+          permissions: [{ requestId: '1', agentId: 'rex', toolName: 'Bash', detail: 'Bash: grep -rn "SessionStore" src/', canAlways: true }],
+          guardrails, spec: { status: 'pending', agentName: 'Ada', markdown: '## Requirements\n- Session cache behind `SessionStore`\n\n## Design\nIn-process map, interface in `src/shared`.\n\n## Tasks\n1. Add interface\n2. Add MemoryStore\n3. Tests' } });
         send({ type: 'partial', agentId: 'rex', text: 'Deploys wipe an in-process cache, so every release logs everyone out. Is that acceptable for `v1`?' });
         send({ type: 'activity', agentId: 'rex', text: 'Grep: SessionStore' });
       }
       if (m.type === 'send') send({ type: 'message', message: { id: id++, from: 'user', text: m.text, ts: 0 } });
       if (m.type === 'permissionResponse') send({ type: 'permissions', permissions: [] });
+      if (m.type === 'setGuardrails') { guardrails = { ...guardrails, file: m.file, entries: guardrails.entries.map((e) => ({ ...e, enabled: m.file.preset === 'factory' ? e.applies : (m.file.enabled[e.id] !== undefined || (guardrails.presets.find((p) => p.id === m.file.preset)?.guardrailIds.includes(e.id) ?? false)) && !m.file.disabled.includes(e.id) })) }; send({ type: 'guardrails', guardrails }); }
+      if (m.type === 'applySetup') { guardrails = { ...guardrails, setup: [], busy: false }; send({ type: 'guardrails', guardrails }); send({ type: 'message', message: { id: id++, from: 'system', text: 'Guardrail setup: wrote AGENTS.md, docs/adr/0001-record-architecture-decisions.md.', ts: 0 } }); }
+      if (m.type === 'specDecision') { send({ type: 'spec', spec: undefined }); send({ type: 'message', message: { id: id++, from: 'user', text: 'Spec approved. Go ahead and implement it.', ts: 0 } }); }
       if (m.type === 'saveAgent') { agents = agents.map((a) => a.config.id === m.config.id ? { ...a, config: m.config } : a); send({ type: 'agents', agents }); }
     },
   });
