@@ -14,6 +14,8 @@ const agentSchema = z.object({
   allowedTools: z.array(z.string()),
   disallowedTools: z.array(z.string()),
   workspaceMode: z.enum(WORKSPACE_MODES as [string, ...string[]]),
+  reviewer: z.boolean().optional(),
+  canEditProtected: z.boolean().optional(),
 });
 
 const fileSchema = z.object({ agents: z.array(agentSchema) });

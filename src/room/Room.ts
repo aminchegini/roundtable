@@ -23,6 +23,8 @@ export interface AgentSession {
   interrupt(): Promise<void>;
   /** Apply a config change, live where possible, otherwise by restarting on next turn. */
   applyConfig(next: AgentConfig, roster: AgentConfig[]): Promise<void>;
+  /** Restart the underlying session (after its turn, if one is running), keeping history. */
+  restart?(): void;
   dispose(): void;
 }
 
@@ -35,7 +37,9 @@ export interface RoomCaps {
 export type RoomEvent =
   | { type: 'message'; message: RoomMessage }
   | { type: 'agents' }
-  | { type: 'room' };
+  | { type: 'room' }
+  | { type: 'user-message' }
+  | { type: 'turn-start'; agentId: string };
 
 export interface RoomDeps {
   createSession(config: AgentConfig, roster: AgentConfig[]): AgentSession;
@@ -144,6 +148,7 @@ export class Room {
   // ---- user actions ----
 
   postUserMessage(text: string): void {
+    this.deps.emit({ type: 'user-message' });
     const message = this.post(USER_ID, text);
     this.turnsSinceUser = 0;
     this.consecutivePasses = 0;
@@ -151,6 +156,20 @@ export class Room {
     // The user's mentions outrank anything agents queued up earlier.
     this.priority = [...this.mentions(message.text, USER_ID), ...this.priority];
     this.start();
+  }
+
+  /** System messages are shown to the user but not sent to agents. */
+  postSystem(text: string): void {
+    this.post('system', text);
+  }
+
+  get agentConfigs(): AgentConfig[] {
+    return this.roster;
+  }
+
+  /** Restart every session (e.g. guardrails changed); each resumes its own history. */
+  restartAll(): void {
+    for (const m of this.members) m.session.restart?.();
   }
 
   async stop(): Promise<void> {
@@ -288,6 +307,7 @@ export class Room {
     member.cursor = this.messages.length;
     member.status = 'speaking';
     this.active = member;
+    this.deps.emit({ type: 'turn-start', agentId: member.config.id });
     this.deps.emit({ type: 'agents' });
 
     let result: TurnResult;

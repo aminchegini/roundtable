@@ -28,5 +28,13 @@ export async function ensureWorktree(workspaceDir: string, storageDir: string, a
   }
   await fs.mkdir(path.dirname(dir), { recursive: true });
   await git(root, 'worktree', 'add', '--detach', dir);
+  // Share installed dependencies so tooling (tsc, eslint, tests) works in the worktree.
+  const modules = path.join(root, 'node_modules');
+  try {
+    await fs.access(modules);
+    await fs.symlink(modules, path.join(dir, 'node_modules'), 'dir');
+  } catch {
+    // no node_modules in the project, or the link already exists
+  }
   return dir;
 }

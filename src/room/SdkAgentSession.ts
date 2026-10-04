@@ -6,6 +6,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
+import type { HookMap, ToolSpec } from '../guardrails/types';
 import type { AgentConfig } from '../shared/protocol';
 import type { AgentSession, TurnResult } from './Room';
 
@@ -16,6 +17,14 @@ export type SessionEvent =
   | { type: 'activity'; text: string }
   | { type: 'started'; sessionId: string; model: string; apiKeySource: string };
 
+/** What the guardrail runtime contributes to one agent's session. */
+export interface SessionGuardrails {
+  buildHooks(agent: AgentConfig, roster: AgentConfig[], cwd: string): HookMap;
+  buildPrompt(agent: AgentConfig, roster: AgentConfig[], cwd: string): Promise<string>;
+  buildTools(agent: AgentConfig, roster: AgentConfig[], cwd: string): ToolSpec[];
+  buildDisallowed(agent: AgentConfig, roster: AgentConfig[], cwd: string): string[];
+}
+
 export interface SessionContext {
   sdk: Sdk;
   claudePath: string | undefined;
@@ -24,6 +33,7 @@ export interface SessionContext {
   env: Record<string, string | undefined>;
   /** Session id from a previous run, to resume its history. */
   resumeId: string | undefined;
+  guardrails?: SessionGuardrails;
   onEvent(event: SessionEvent): void;
   requestPermission(
     toolName: string,
@@ -35,7 +45,7 @@ export interface SessionContext {
 
 const ROOM_SERVER = 'room';
 const PASS_TOOL = `mcp__${ROOM_SERVER}__pass_turn`;
-const READ_ONLY_DENY = ['Edit', 'Write', 'NotebookEdit', 'Bash'];
+const READ_ONLY_DENY = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash'];
 
 interface PendingTurn {
   resolve(result: TurnResult): void;
@@ -78,7 +88,7 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
 export function buildRolePrompt(config: AgentConfig, roster: AgentConfig[]): string {
   const others = roster
     .filter((a) => a.id !== config.id)
-    .map((a) => `- ${a.name}: ${firstLine(a.role) || 'no stated role'}`)
+    .map((a) => `- ${a.name}${a.reviewer ? ' (reviewer)' : ''}: ${firstLine(a.role) || 'no stated role'}`)
     .join('\n');
   return [
     `You are ${config.name}, one participant in a group room called Roundtable, together with the user and other AI agents.`,
@@ -111,6 +121,8 @@ export class SdkAgentSession implements AgentSession {
   private disposed = false;
   /** A config change that needs a restart arrived mid-turn. */
   private restartAfterTurn = false;
+  /** What the running session was started with, to detect changes that need a restart. */
+  private started: { cwd: string | undefined; prompt: string; disallowed: string } | undefined;
 
   constructor(
     private config: AgentConfig,
@@ -140,25 +152,32 @@ export class SdkAgentSession implements AgentSession {
 
   async applyConfig(next: AgentConfig, roster: AgentConfig[]): Promise<void> {
     const prev = this.config;
-    const prevPrompt = buildRolePrompt(prev, this.roster);
     this.config = next;
     this.roster = roster;
-    if (!this.query) return;
+    if (!this.query || !this.started) return;
 
+    const cwd = this.started.cwd;
+    const prompt = await this.fullPrompt(next, roster, cwd);
+    const disallowed = this.disallowed(next, roster, cwd).join();
     const needsRestart =
-      prevPrompt !== buildRolePrompt(next, roster) ||
+      prompt !== this.started.prompt ||
+      disallowed !== this.started.disallowed ||
       prev.workspaceMode !== next.workspaceMode ||
-      prev.allowedTools.join() !== next.allowedTools.join() ||
-      prev.disallowedTools.join() !== next.disallowedTools.join();
+      prev.allowedTools.join() !== next.allowedTools.join();
     if (needsRestart) {
-      // Restarted lazily on the next turn, resuming the same session id.
-      if (this.pending) this.restartAfterTurn = true;
-      else this.shutdown();
+      this.restart();
       return;
     }
     if (prev.model !== next.model) await this.query.setModel(next.model);
     if (prev.permissionMode !== next.permissionMode) await this.query.setPermissionMode(next.permissionMode);
     if (prev.effort !== next.effort) await this.query.applyFlagSettings({ effortLevel: next.effort });
+  }
+
+  /** Restart lazily on the next turn (or right away when idle), resuming the same session id. */
+  restart(): void {
+    if (!this.query) return;
+    if (this.pending) this.restartAfterTurn = true;
+    else this.shutdown();
   }
 
   dispose(): void {
@@ -172,12 +191,31 @@ export class SdkAgentSession implements AgentSession {
     this.query = undefined;
     this.input = undefined;
     this.abort = undefined;
+    this.started = undefined;
     this.finishTurn({ error: 'session closed' });
+  }
+
+  private async fullPrompt(config: AgentConfig, roster: AgentConfig[], cwd: string | undefined): Promise<string> {
+    const role = buildRolePrompt(config, roster);
+    const extra = cwd && this.ctx.guardrails ? await this.ctx.guardrails.buildPrompt(config, roster, cwd) : '';
+    return extra ? `${role}\n\n${extra}` : role;
+  }
+
+  private disallowed(config: AgentConfig, roster: AgentConfig[], cwd: string | undefined): string[] {
+    const list = ['AskUserQuestion', ...config.disallowedTools];
+    if (config.workspaceMode === 'read-only') list.push(...READ_ONLY_DENY);
+    if (cwd && this.ctx.guardrails) list.push(...this.ctx.guardrails.buildDisallowed(config, roster, cwd));
+    return [...new Set(list)];
   }
 
   private async start(): Promise<void> {
     const { sdk } = this.ctx;
     const config = this.config;
+    const roster = this.roster;
+    const cwd = await this.ctx.resolveCwd(config);
+    const guardrails = cwd ? this.ctx.guardrails : undefined;
+
+    const toolSpecs = guardrails && cwd ? guardrails.buildTools(config, roster, cwd) : [];
     const roomServer = sdk.createSdkMcpServer({
       name: ROOM_SERVER,
       version: '1.0.0',
@@ -193,31 +231,37 @@ export class SdkAgentSession implements AgentSession {
           // Keep the tool in the prompt so agents need no tool search to pass.
           { alwaysLoad: true },
         ),
+        ...toolSpecs.map((spec) =>
+          sdk.tool(
+            spec.name,
+            spec.description,
+            spec.schema,
+            async (args) => ({ content: [{ type: 'text', text: await spec.handler(args as Record<string, unknown>) }] }),
+            { alwaysLoad: true },
+          ),
+        ),
       ],
     });
 
-    const disallowed = ['AskUserQuestion', ...config.disallowedTools];
-    if (config.workspaceMode === 'read-only') disallowed.push(...READ_ONLY_DENY);
+    const prompt = await this.fullPrompt(config, roster, cwd);
+    const disallowed = this.disallowed(config, roster, cwd);
+    this.started = { cwd, prompt, disallowed: disallowed.join() };
 
     const options: Options = {
       model: config.model,
       effort: config.effort,
       permissionMode: config.permissionMode,
-      // snapshot: false so edits to the role or roster apply when the session resumes.
-      systemPrompt: {
-        type: 'preset',
-        preset: 'claude_code',
-        append: buildRolePrompt(config, this.roster),
-        snapshot: false,
-      },
-      allowedTools: [PASS_TOOL, ...config.allowedTools],
+      // snapshot: false so edits to the role, roster or guardrails apply when the session resumes.
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: prompt, snapshot: false },
+      allowedTools: [PASS_TOOL, ...toolSpecs.map((t) => `mcp__${ROOM_SERVER}__${t.name}`), ...config.allowedTools],
       disallowedTools: disallowed,
       mcpServers: { [ROOM_SERVER]: roomServer },
+      hooks: guardrails && cwd ? guardrails.buildHooks(config, roster, cwd) : undefined,
       // Project settings only: load the workspace CLAUDE.md, but keep the
       // user's personal plugins and hooks out of room agents.
       settingSources: ['project'],
       includePartialMessages: true,
-      cwd: await this.ctx.resolveCwd(config),
+      cwd,
       env: this.ctx.env,
       pathToClaudeCodeExecutable: this.ctx.claudePath,
       resume: this.sessionId,
@@ -264,6 +308,7 @@ export class SdkAgentSession implements AgentSession {
   private crashed(reason: string): void {
     this.query = undefined;
     this.input = undefined;
+    this.started = undefined;
     this.finishTurn({ error: reason });
   }
 

@@ -9,17 +9,21 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p webview",
     "test": "vitest run",
     "spike": "node scripts/spike.mjs",
-    "e2e": "esbuild scripts/e2e.ts --bundle --platform=node --format=esm --external:@anthropic-ai/claude-agent-sdk --outfile=dist/e2e.mjs --log-level=warning && node dist/e2e.mjs",
-    "preview": "node esbuild.mjs && node scripts/serve.mjs"
+    "e2e": "esbuild scripts/e2e.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/e2e.mjs --log-level=warning && node dist/e2e.mjs",
+    "preview": "node esbuild.mjs && node scripts/serve.mjs",
+    "e2e:guardrails": "esbuild scripts/e2e-guardrails.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/e2e-guardrails.mjs --log-level=warning && node dist/e2e-guardrails.mjs"
   },
   "author": "Amin",
   "license": "UNLICENSED",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.287",
+    "picomatch": "^4.0.7",
+    "yaml": "^2.9.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",
+    "@types/picomatch": "^4.0.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/vscode": "^1.100.0",
