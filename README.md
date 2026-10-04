@@ -38,6 +38,10 @@ Agents are saved to `.roundtable/agents.json` in the workspace. The transcript a
 
 Tool calls that need approval show up as a prompt in the room, tagged with the agent's name. `bypassPermissions` is not offered.
 
+## Guardrails
+
+Project-level rules every agent must follow, picked per project from presets (**solo**, **team**, **factory**) or one by one, stored in `.roundtable/guardrails.json`. Gates are enforced with SDK hooks on every tool call (shell safety, protected paths, secrets, typecheck, lint, tests, module boundaries); knowledge guardrails create and feed project files (AGENTS.md, architecture map, ADRs, definition of done); process guardrails change how work flows (reviewer veto, spec-first approval, worktree per implementer). Open **Guardrails** in the room header; enabling something that needs files or tools shows a setup list you apply with one click. Details in [docs/guardrails.md](docs/guardrails.md).
+
 ## Auth
 
 Sessions use the local `claude` executable and its login (`roundtable.claudePath` overrides auto-detection). If you would rather bill an API key, run **Roundtable: Set API Key**, then reset the room.
@@ -49,16 +53,18 @@ npm test          # scheduler tests, no API calls
 npm run typecheck
 npm run preview   # webview in a browser with fake data: http://localhost:5179/
 npm run e2e       # live two-agent debate through the SDK (costs a few cents)
+npm run e2e:guardrails  # live guardrail check on a scratch TypeScript project
 ```
 
 Layout:
 
 - `src/room/Room.ts` — turn scheduler and caps. No VS Code or SDK imports, so it is unit-tested with fake sessions.
 - `src/room/SdkAgentSession.ts` — one long-lived SDK `query()` per agent, the `pass_turn` tool, permission bridge.
+- `src/guardrails/` — detection, catalog, presets, runtime (hooks/prompts/tools per agent), setup.
 - `src/panel/RoomPanel.ts` — webview host, persistence, wiring.
 - `webview/` — React UI.
 - `src/shared/protocol.ts` — message types shared by host and webview.
 
 ## Not in v1
 
-Other model providers, moderator and mention-only turn modes, agents speaking in parallel, full markdown rendering, Marketplace packaging.
+Other model providers, moderator and mention-only turn modes, agents speaking in parallel, full markdown rendering, Marketplace packaging. Guardrails: Python/Go catalogs, API contract diffing, supply-chain scanners, CI export of the same gates.
