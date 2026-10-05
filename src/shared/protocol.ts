@@ -10,6 +10,35 @@ export const PERMISSION_MODES: PermissionMode[] = ['default', 'acceptEdits', 'au
 export type WorkspaceMode = 'shared' | 'worktree' | 'read-only';
 export const WORKSPACE_MODES: WorkspaceMode[] = ['shared', 'worktree', 'read-only'];
 
+export type ProviderId = 'claude' | 'codex' | 'gemini' | 'copilot' | 'cursor';
+export const PROVIDER_IDS: ProviderId[] = ['claude', 'codex', 'gemini', 'copilot', 'cursor'];
+
+export interface ModelOption {
+  id: string;
+  label: string;
+}
+
+/** Guardrail enforcement a provider supports: in-process PreToolUse hooks, or only gates run after each turn. */
+export type Enforcement = 'full' | 'gates';
+
+export interface ProviderView {
+  id: ProviderId;
+  title: string;
+  vendor: string;
+  installed: boolean;
+  authenticated: boolean | 'unknown';
+  /** One line: "signed in as …", "not installed", "login unknown". */
+  detail: string;
+  /** How to get it working, shown when unavailable. */
+  setupHint: string;
+  models: ModelOption[];
+  enforcement: Enforcement;
+  /** Reports USD cost; otherwise only tokens. */
+  costUsd: boolean;
+  experimental?: boolean;
+}
+
+/** Claude models offered in pickers; every picker also accepts free text. */
 export const MODELS = [
   'claude-fable-5-1',
   'claude-opus-5-5',
@@ -21,6 +50,7 @@ export interface AgentConfig {
   id: string;
   name: string;
   color: string;
+  provider: ProviderId;
   /** Role text appended to the Claude Code system prompt. */
   role: string;
   model: string;
@@ -33,14 +63,32 @@ export interface AgentConfig {
   reviewer?: boolean;
   /** May edit paths the protected-paths guardrail blocks for everyone else. */
   canEditProtected?: boolean;
+  pinned?: boolean;
+}
+
+export interface RoomMeta {
+  id: string;
+  name: string;
+  /** A DM is a room with exactly one agent. */
+  kind: 'group' | 'dm';
+  agentIds: string[];
+  pinned: boolean;
+  createdAt: number;
+  lastActivity: number;
 }
 
 export type AgentStatus = 'idle' | 'speaking' | 'error';
+
+export interface Tokens {
+  input: number;
+  output: number;
+}
 
 export interface AgentView {
   config: AgentConfig;
   status: AgentStatus;
   costUsd: number;
+  tokens: Tokens;
   /** Model reported by the live session, if it has started. */
   liveModel?: string;
 }
@@ -62,6 +110,8 @@ export interface RoomStatus {
   round: number;
   maxRounds: number;
   costUsd: number;
+  /** Total tokens across agents, for providers that report no USD. */
+  tokens: Tokens;
   budgetUsd: number;
   stopReason?: StopReason;
   /** Active process locks, from guardrails. */
@@ -141,8 +191,24 @@ export interface PermissionRequest {
 
 export type PermissionDecision = 'allow' | 'always' | 'deny';
 
+export interface RoomsView {
+  rooms: RoomMeta[];
+  activeRoomId: string | undefined;
+}
+
+export interface RoomState {
+  agents: AgentView[];
+  messages: RoomMessage[];
+  room: RoomStatus;
+  permissions: PermissionRequest[];
+  spec: SpecView | undefined;
+}
+
 export type HostToWebview =
-  | { type: 'state'; agents: AgentView[]; messages: RoomMessage[]; room: RoomStatus; permissions: PermissionRequest[]; guardrails: GuardrailsView; spec: SpecView | undefined }
+  | { type: 'state'; roomState: RoomState | undefined; allAgents: AgentView[]; rooms: RoomsView; providers: ProviderView[]; guardrails: GuardrailsView; location: 'sidebar' | 'editor' }
+  | { type: 'rooms'; rooms: RoomsView }
+  | { type: 'allAgents'; agents: AgentView[] }
+  | { type: 'providers'; providers: ProviderView[] }
   | { type: 'message'; message: RoomMessage }
   | { type: 'partial'; agentId: string; text: string }
   | { type: 'activity'; agentId: string; text: string }
@@ -150,7 +216,8 @@ export type HostToWebview =
   | { type: 'room'; room: RoomStatus }
   | { type: 'permissions'; permissions: PermissionRequest[] }
   | { type: 'guardrails'; guardrails: GuardrailsView }
-  | { type: 'spec'; spec: SpecView | undefined };
+  | { type: 'spec'; spec: SpecView | undefined }
+  | { type: 'navigate'; view: 'room' | 'guardrails' | 'help' };
 
 export type WebviewToHost =
   | { type: 'ready' }
@@ -163,4 +230,14 @@ export type WebviewToHost =
   | { type: 'permissionResponse'; requestId: string; decision: PermissionDecision }
   | { type: 'setGuardrails'; file: GuardrailsFile }
   | { type: 'applySetup' }
-  | { type: 'specDecision'; decision: 'approve' | 'changes'; note: string };
+  | { type: 'specDecision'; decision: 'approve' | 'changes'; note: string }
+  | { type: 'switchRoom'; id: string }
+  | { type: 'createRoom'; name?: string; kind: 'group' | 'dm'; agentIds: string[] }
+  | { type: 'renameRoom'; id: string; name: string }
+  | { type: 'pinRoom'; id: string; pinned: boolean }
+  | { type: 'deleteRoom'; id: string }
+  | { type: 'setParticipants'; id: string; agentIds: string[] }
+  | { type: 'pinAgent'; id: string; pinned: boolean }
+  | { type: 'openInEditor' }
+  | { type: 'refreshProviders' }
+  | { type: 'openDoc'; doc: string };

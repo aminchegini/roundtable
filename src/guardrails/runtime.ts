@@ -1,5 +1,7 @@
 import type { HookCallback, HookInput } from '@anthropic-ai/claude-agent-sdk';
 import * as path from 'node:path';
+import { textProtocolPrompt } from '../room/textCommands';
+import type { ParsedReply } from '../room/textCommands';
 import type { AgentConfig } from '../shared/protocol';
 import type { Runner } from './runner';
 import type { EffectiveGuardrail } from './store';
@@ -46,10 +48,14 @@ export class GuardrailRuntime {
   private effective: EffectiveGuardrail[] = [];
   private turns = new Map<string, TurnState>();
 
-  constructor(private readonly deps: RuntimeDeps) {}
+  constructor(private deps: RuntimeDeps) {}
 
   get active(): EffectiveGuardrail[] {
     return this.effective;
+  }
+
+  setProfile(profile: ProjectProfile): void {
+    this.deps = { ...this.deps, profile };
   }
 
   setEffective(list: EffectiveGuardrail[]): void {
@@ -199,6 +205,72 @@ export class GuardrailRuntime {
 
   buildDisallowed(agent: AgentConfig, roster: AgentConfig[], cwd: string): string[] {
     return this.effective.flatMap(({ def, config }) => def.disallowedTools?.(this.ctxFor(agent, roster, cwd, config)) ?? []);
+  }
+
+  // ---- provider-neutral paths (no in-process SDK hooks) ----
+
+  textProtocolPrompt(agent: AgentConfig): string {
+    return textProtocolPrompt({ reviewer: !!agent.reviewer && this.has('reviewer-veto'), specFirst: this.has('spec-first') });
+  }
+
+  noteEdit(agentId: string, cwd: string, file: string): void {
+    this.turnFor(agentId).editedFiles.add(relativeTo(cwd, file));
+  }
+
+  /** Run the PreToolUse hooks for one call; returns the deny reason, if any. */
+  async preToolUse(agent: AgentConfig, roster: AgentConfig[], cwd: string, toolName: string, input: unknown): Promise<string | undefined> {
+    const hooks = this.buildHooks(agent, roster, cwd).PreToolUse ?? [];
+    const hookInput = { hook_event_name: 'PreToolUse', tool_name: toolName, tool_input: input, tool_use_id: '', session_id: '', transcript_path: '', cwd } as HookInput;
+    for (const matcher of hooks) {
+      if (matcher.matcher && !new RegExp(`^(${matcher.matcher})$`).test(toolName)) continue;
+      for (const hook of matcher.hooks) {
+        const out = (await hook(hookInput, undefined, { signal: new AbortController().signal })) as {
+          hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string };
+        };
+        if (out.hookSpecificOutput?.permissionDecision === 'deny') return out.hookSpecificOutput.permissionDecisionReason ?? 'blocked by a guardrail';
+      }
+    }
+    return undefined;
+  }
+
+  /** Text-protocol equivalents of the approve_plan / submit_spec tools. */
+  applyReply(agent: AgentConfig, reply: ParsedReply): void {
+    if (reply.approve && agent.reviewer && this.has('reviewer-veto')) {
+      this.room.approvedRequest = this.room.requestId;
+      this.deps.report(`${agent.name} approved the plan: ${reply.approve}`);
+      this.deps.stateChanged();
+    }
+    if (reply.spec && this.has('spec-first')) {
+      this.room.spec = { status: 'pending', markdown: reply.spec, agentId: agent.id, requestId: this.room.requestId };
+      this.deps.report(`${agent.name} submitted a spec — waiting for your decision.`);
+      this.deps.stateChanged();
+    }
+  }
+
+  /**
+   * Stop-gate check for providers without a Stop hook: returns the reason the
+   * agent should keep working, honouring the same per-turn block limit.
+   */
+  async stopGate(agent: AgentConfig, roster: AgentConfig[], cwd: string, lastMessage: string): Promise<string | undefined> {
+    const turn = this.turnFor(agent.id);
+    for (const { def, config } of this.effective) {
+      if (!def.stopCheck) continue;
+      let reason: string | undefined;
+      try {
+        reason = await def.stopCheck(this.ctxFor(agent, roster, cwd, config), lastMessage);
+      } catch (err) {
+        this.deps.report(`Guardrail ${def.id} failed to run for ${agent.name}: ${err instanceof Error ? err.message : String(err)}`);
+        continue;
+      }
+      if (!reason) continue;
+      if (turn.stopBlocks >= MAX_STOP_BLOCKS) {
+        this.deps.report(`${agent.name} finished with an unmet gate (${def.title}): ${firstLine(reason)}`);
+        return undefined;
+      }
+      turn.stopBlocks += 1;
+      return `[${def.title}] ${reason}`;
+    }
+    return undefined;
   }
 }
 

@@ -6,15 +6,19 @@ import {
   type RoomMessage,
   type RoomStatus,
   type StopReason,
+  type Tokens,
 } from '../shared/protocol';
+import { parseReply, type ParsedReply } from './textCommands';
 
 export interface TurnResult {
   /** Final reply text for the room. Ignored when `passed`. */
   text: string;
   /** Agent called pass_turn: nothing to add. */
   passed: boolean;
-  /** Cumulative estimated cost of this agent's session. */
+  /** Cumulative estimated cost of this agent's session (0 for providers without USD figures). */
   costUsd: number;
+  /** Cumulative tokens of this agent's session, when the provider reports them. */
+  tokens?: Tokens;
   error?: string;
 }
 
@@ -39,7 +43,9 @@ export type RoomEvent =
   | { type: 'agents' }
   | { type: 'room' }
   | { type: 'user-message' }
-  | { type: 'turn-start'; agentId: string };
+  | { type: 'turn-start'; agentId: string }
+  /** An agent finished a turn without error; `reply` carries parsed text commands. */
+  | { type: 'turn-done'; agentId: string; reply: ParsedReply };
 
 export interface RoomDeps {
   createSession(config: AgentConfig, roster: AgentConfig[]): AgentSession;
@@ -54,12 +60,16 @@ interface Member {
   cursor: number;
   status: AgentStatus;
   costUsd: number;
+  tokens: Tokens;
 }
 
 export interface RoomSnapshot {
   messages: RoomMessage[];
   costs: Record<string, number>;
+  tokens?: Record<string, Tokens>;
 }
+
+const NO_TOKENS: Tokens = { input: 0, output: 0 };
 
 /**
  * Free-debate scheduler. One agent speaks at a time; agents addressed by
@@ -88,11 +98,11 @@ export class Room {
       this.nextId = this.messages.reduce((max, m) => Math.max(max, m.id), 0) + 1;
     }
     for (const config of configs) {
-      this.members.push(this.makeMember(config, configs, snapshot?.costs[config.id] ?? 0));
+      this.members.push(this.makeMember(config, configs, snapshot?.costs[config.id] ?? 0, snapshot?.tokens?.[config.id]));
     }
   }
 
-  private makeMember(config: AgentConfig, roster: AgentConfig[], costUsd = 0): Member {
+  private makeMember(config: AgentConfig, roster: AgentConfig[], costUsd = 0, tokens: Tokens = NO_TOKENS): Member {
     return {
       config,
       session: this.deps.createSession(config, roster),
@@ -101,13 +111,14 @@ export class Room {
       cursor: this.messages.length,
       status: 'idle',
       costUsd,
+      tokens,
     };
   }
 
   // ---- views ----
 
   get agentViews(): AgentView[] {
-    return this.members.map((m) => ({ config: m.config, status: m.status, costUsd: m.costUsd }));
+    return this.members.map((m) => ({ config: m.config, status: m.status, costUsd: m.costUsd, tokens: m.tokens }));
   }
 
   get transcript(): RoomMessage[] {
@@ -121,6 +132,7 @@ export class Room {
       round: this.round,
       maxRounds: caps.maxRounds,
       costUsd: this.totalCost,
+      tokens: this.members.reduce((t, m) => ({ input: t.input + m.tokens.input, output: t.output + m.tokens.output }), { ...NO_TOKENS }),
       budgetUsd: caps.budgetUsd,
       stopReason: this.stopReason,
     };
@@ -130,6 +142,7 @@ export class Room {
     return {
       messages: this.messages.slice(-300),
       costs: Object.fromEntries(this.members.map((m) => [m.config.id, m.costUsd])),
+      tokens: Object.fromEntries(this.members.map((m) => [m.config.id, m.tokens])),
     };
   }
 
@@ -319,6 +332,12 @@ export class Room {
     this.active = undefined;
     // Sessions report a running total; a restarted session may start lower.
     member.costUsd = Math.max(member.costUsd, result.costUsd);
+    if (result.tokens) {
+      member.tokens = {
+        input: Math.max(member.tokens.input, result.tokens.input),
+        output: Math.max(member.tokens.output, result.tokens.output),
+      };
+    }
 
     if (this.stopRequested) {
       member.status = 'idle';
@@ -330,12 +349,13 @@ export class Room {
     } else {
       member.status = 'idle';
       this.consecutiveErrors = 0;
-      const text = result.text.trim();
-      if (result.passed || !text) {
+      const reply = parseReply(result.text);
+      this.deps.emit({ type: 'turn-done', agentId: member.config.id, reply });
+      if (result.passed || reply.passed || !reply.text) {
         this.consecutivePasses += 1;
       } else {
         this.consecutivePasses = 0;
-        const message = this.post(member.config.id, text);
+        const message = this.post(member.config.id, reply.text);
         this.priority.push(...this.mentions(message.text, member.config.id));
       }
     }

@@ -1,12 +1,14 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { z } from 'zod';
-import { EFFORTS, PERMISSION_MODES, WORKSPACE_MODES, type AgentConfig } from '../shared/protocol';
+import { EFFORTS, PERMISSION_MODES, PROVIDER_IDS, WORKSPACE_MODES, type AgentConfig, type ProviderId } from '../shared/protocol';
 
 const agentSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   color: z.string(),
+  // Added in v3; older files have no provider and are Claude agents.
+  provider: z.enum(PROVIDER_IDS as [string, ...string[]]).default('claude'),
   role: z.string(),
   model: z.string().min(1),
   effort: z.enum(EFFORTS as [string, ...string[]]),
@@ -16,6 +18,7 @@ const agentSchema = z.object({
   workspaceMode: z.enum(WORKSPACE_MODES as [string, ...string[]]),
   reviewer: z.boolean().optional(),
   canEditProtected: z.boolean().optional(),
+  pinned: z.boolean().optional(),
 });
 
 const fileSchema = z.object({ agents: z.array(agentSchema) });
@@ -26,11 +29,12 @@ export function newAgentId(): string {
   return `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 
-function agent(index: number, name: string, model: string, role: string): AgentConfig {
+function agent(index: number, name: string, model: string, role: string, provider: ProviderId = 'claude'): AgentConfig {
   return {
     id: newAgentId(),
     name,
     color: COLORS[index % COLORS.length] ?? '#888888',
+    provider,
     role,
     model,
     effort: 'medium',
@@ -49,11 +53,11 @@ export function defaultAgents(): AgentConfig[] {
   ];
 }
 
-export function blankAgent(existing: AgentConfig[]): AgentConfig {
-  const names = ['Sol', 'Ivy', 'Max', 'Noa', 'Zed', 'Uma'];
+export function blankAgent(existing: AgentConfig[], provider: ProviderId = 'claude', model = 'claude-sonnet-5-5'): AgentConfig {
+  const names = ['Sol', 'Ivy', 'Max', 'Noa', 'Zed', 'Uma', 'Rio', 'Kai'];
   const taken = new Set(existing.map((a) => a.name.toLowerCase()));
   const name = names.find((n) => !taken.has(n.toLowerCase())) ?? `Agent${existing.length + 1}`;
-  return agent(existing.length, name, 'claude-sonnet-5-5', '');
+  return agent(existing.length, name, model, '', provider);
 }
 
 function configPath(workspaceDir: string): string {
