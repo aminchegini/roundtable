@@ -6,42 +6,14 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { HookMap, ToolSpec } from '../guardrails/types';
 import type { AgentConfig } from '../shared/protocol';
 import type { AgentSession, TurnResult } from './Room';
 
 type Sdk = typeof import('@anthropic-ai/claude-agent-sdk');
 
-export type SessionEvent =
-  | { type: 'partial'; text: string }
-  | { type: 'activity'; text: string }
-  | { type: 'started'; sessionId: string; model: string; apiKeySource: string };
+import type { SessionContext, SessionEvent, SessionGuardrails } from '../providers/types';
 
-/** What the guardrail runtime contributes to one agent's session. */
-export interface SessionGuardrails {
-  buildHooks(agent: AgentConfig, roster: AgentConfig[], cwd: string): HookMap;
-  buildPrompt(agent: AgentConfig, roster: AgentConfig[], cwd: string): Promise<string>;
-  buildTools(agent: AgentConfig, roster: AgentConfig[], cwd: string): ToolSpec[];
-  buildDisallowed(agent: AgentConfig, roster: AgentConfig[], cwd: string): string[];
-}
-
-export interface SessionContext {
-  sdk: Sdk;
-  claudePath: string | undefined;
-  /** Working directory for this agent (workspace, worktree, or undefined). */
-  resolveCwd(config: AgentConfig): Promise<string | undefined>;
-  env: Record<string, string | undefined>;
-  /** Session id from a previous run, to resume its history. */
-  resumeId: string | undefined;
-  guardrails?: SessionGuardrails;
-  onEvent(event: SessionEvent): void;
-  requestPermission(
-    toolName: string,
-    input: Record<string, unknown>,
-    canAlways: boolean,
-    signal: AbortSignal,
-  ): Promise<'allow' | 'always' | 'deny'>;
-}
+export type { SessionContext, SessionEvent, SessionGuardrails };
 
 const ROOM_SERVER = 'room';
 const PASS_TOOL = `mcp__${ROOM_SERVER}__pass_turn`;
@@ -85,7 +57,7 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
   }
 }
 
-export function buildRolePrompt(config: AgentConfig, roster: AgentConfig[]): string {
+export function buildRolePrompt(config: AgentConfig, roster: AgentConfig[], passHint = `call the ${PASS_TOOL} tool`): string {
   const others = roster
     .filter((a) => a.id !== config.id)
     .map((a) => `- ${a.name}${a.reviewer ? ' (reviewer)' : ''}: ${firstLine(a.role) || 'no stated role'}`)
@@ -97,7 +69,7 @@ export function buildRolePrompt(config: AgentConfig, roster: AgentConfig[]): str
     'Speak as yourself in the first person; never prefix your reply with your own name or write lines for other participants.',
     'Keep replies conversational and short (a few sentences) unless someone asks for detail. Address someone directly with @Name to give them the next turn.',
     'Engage with what others said: disagree when you disagree, build on good ideas, and do not restate points already made.',
-    `If you have nothing new to add, call the ${PASS_TOOL} tool instead of replying. Do not reply just to agree.`,
+    `If you have nothing new to add, ${passHint} instead of replying. Do not reply just to agree.`,
     'There is no interactive question tool here; ask questions in your reply.',
     config.role.trim() ? `Your role:\n${config.role.trim()}` : '',
   ]
@@ -117,6 +89,7 @@ export class SdkAgentSession implements AgentSession {
   private pending: PendingTurn | undefined;
   private sessionId: string | undefined;
   private lastCost = 0;
+  private tokens = { input: 0, output: 0 };
   private partial = '';
   private disposed = false;
   /** A config change that needs a restart arrived mid-turn. */
@@ -128,6 +101,7 @@ export class SdkAgentSession implements AgentSession {
     private config: AgentConfig,
     private roster: AgentConfig[],
     private readonly ctx: SessionContext,
+    private readonly sdk: Sdk,
   ) {
     this.sessionId = ctx.resumeId;
   }
@@ -209,7 +183,7 @@ export class SdkAgentSession implements AgentSession {
   }
 
   private async start(): Promise<void> {
-    const { sdk } = this.ctx;
+    const sdk = this.sdk;
     const config = this.config;
     const roster = this.roster;
     const cwd = await this.ctx.resolveCwd(config);
@@ -342,6 +316,11 @@ export class SdkAgentSession implements AgentSession {
         break;
       case 'result':
         this.lastCost = m.total_cost_usd;
+        // usage is per turn in streaming sessions; keep a running total for the room.
+        this.tokens = {
+          input: this.tokens.input + (m.usage?.input_tokens ?? 0) + (m.usage?.cache_read_input_tokens ?? 0) + (m.usage?.cache_creation_input_tokens ?? 0),
+          output: this.tokens.output + (m.usage?.output_tokens ?? 0),
+        };
         if (m.subtype === 'success' && !m.is_error) {
           this.finishTurn({ text: m.result });
         } else {
@@ -359,6 +338,7 @@ export class SdkAgentSession implements AgentSession {
       text: outcome.text ?? '',
       passed: pending.passed,
       costUsd: this.lastCost,
+      tokens: this.tokens,
       error: outcome.error,
     });
     if (this.restartAfterTurn) {

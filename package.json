@@ -1,6 +1,6 @@
 {
   "name": "roundtable",
-  "version": "0.0.1",
+  "version": "0.3.0",
   "description": "Local Claude agents talking to each other in one room, each with its own model and settings.",
   "main": "./dist/extension.js",
   "scripts": {
@@ -11,17 +11,23 @@
     "spike": "node scripts/spike.mjs",
     "e2e": "esbuild scripts/e2e.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/e2e.mjs --log-level=warning && node dist/e2e.mjs",
     "preview": "node esbuild.mjs && node scripts/serve.mjs",
-    "e2e:guardrails": "esbuild scripts/e2e-guardrails.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/e2e-guardrails.mjs --log-level=warning && node dist/e2e-guardrails.mjs"
+    "e2e:guardrails": "esbuild scripts/e2e-guardrails.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/e2e-guardrails.mjs --log-level=warning && node dist/e2e-guardrails.mjs",
+    "e2e:providers": "esbuild scripts/e2e-providers.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/e2e-providers.mjs --log-level=warning && node dist/e2e-providers.mjs"
   },
   "author": "Amin",
   "license": "UNLICENSED",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.287",
+    "@github/copilot-sdk": "^1.0.16",
+    "@openai/codex-sdk": "^0.160.0",
+    "dompurify": "^3.4.16",
+    "marked": "^18.0.14",
     "picomatch": "^4.0.7",
     "yaml": "^2.9.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@types/dompurify": "^3.0.5",
     "@types/node": "^26.6.4",
     "@types/picomatch": "^4.0.3",
     "@types/react": "^19.3.0",
@@ -43,16 +49,336 @@
     "AI",
     "Chat"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "roundtable",
+          "title": "Roundtable",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "roundtable": [
+        {
+          "id": "roundtable.rooms",
+          "name": "Rooms & Agents",
+          "icon": "media/icon.svg"
+        },
+        {
+          "id": "roundtable.chat",
+          "type": "webview",
+          "name": "Chat",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "roundtable.rooms",
+        "contents": "Open a folder to give agents a project to work in.\n[Open Folder](command:vscode.openFolder)\n\nYou can still chat without one.",
+        "when": "workbenchState == empty"
+      }
+    ],
     "commands": [
       {
+        "command": "roundtable.openChat",
+        "title": "Open Chat",
+        "category": "Roundtable",
+        "icon": "$(comment-discussion)"
+      },
+      {
         "command": "roundtable.open",
-        "title": "Roundtable: Open Room"
+        "title": "Open Room (legacy)",
+        "category": "Roundtable"
+      },
+      {
+        "command": "roundtable.openInEditor",
+        "title": "Open Chat in Editor",
+        "category": "Roundtable",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "roundtable.switchRoom",
+        "title": "Switch Room…",
+        "category": "Roundtable",
+        "icon": "$(list-selection)"
+      },
+      {
+        "command": "roundtable.newRoom",
+        "title": "New Room",
+        "category": "Roundtable",
+        "icon": "$(add)"
+      },
+      {
+        "command": "roundtable.newDm",
+        "title": "New Direct Message",
+        "category": "Roundtable",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "roundtable.openDm",
+        "title": "Message Agent",
+        "category": "Roundtable",
+        "icon": "$(comment)"
+      },
+      {
+        "command": "roundtable.renameRoom",
+        "title": "Rename Room",
+        "category": "Roundtable",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "roundtable.pinRoom",
+        "title": "Pin Room",
+        "category": "Roundtable",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "roundtable.unpinRoom",
+        "title": "Unpin Room",
+        "category": "Roundtable",
+        "icon": "$(pinned)"
+      },
+      {
+        "command": "roundtable.deleteRoom",
+        "title": "Delete Room",
+        "category": "Roundtable",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "roundtable.resetRoom",
+        "title": "Reset Room",
+        "category": "Roundtable",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "roundtable.editParticipants",
+        "title": "Edit Participants",
+        "category": "Roundtable",
+        "icon": "$(organization)"
+      },
+      {
+        "command": "roundtable.newAgent",
+        "title": "New Agent",
+        "category": "Roundtable",
+        "icon": "$(person-add)"
+      },
+      {
+        "command": "roundtable.renameAgent",
+        "title": "Rename Agent",
+        "category": "Roundtable",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "roundtable.pinAgent",
+        "title": "Pin Agent",
+        "category": "Roundtable",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "roundtable.unpinAgent",
+        "title": "Unpin Agent",
+        "category": "Roundtable",
+        "icon": "$(pinned)"
+      },
+      {
+        "command": "roundtable.deleteAgent",
+        "title": "Delete Agent",
+        "category": "Roundtable",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "roundtable.changeModel",
+        "title": "Change Model…",
+        "category": "Roundtable",
+        "icon": "$(symbol-misc)"
+      },
+      {
+        "command": "roundtable.sendSelection",
+        "title": "Send Selection to Room",
+        "category": "Roundtable",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "roundtable.refreshProviders",
+        "title": "Refresh Providers",
+        "category": "Roundtable",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "roundtable.openGuardrails",
+        "title": "Guardrails",
+        "category": "Roundtable",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "roundtable.help",
+        "title": "Help",
+        "category": "Roundtable",
+        "icon": "$(question)"
       },
       {
         "command": "roundtable.setApiKey",
-        "title": "Roundtable: Set API Key (fallback auth)"
+        "title": "Set API Key (Claude fallback)",
+        "category": "Roundtable"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "roundtable.newRoom",
+          "when": "view == roundtable.rooms",
+          "group": "navigation@1"
+        },
+        {
+          "command": "roundtable.newAgent",
+          "when": "view == roundtable.rooms",
+          "group": "navigation@2"
+        },
+        {
+          "command": "roundtable.openInEditor",
+          "when": "view == roundtable.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "roundtable.switchRoom",
+          "when": "view == roundtable.chat",
+          "group": "navigation@2"
+        },
+        {
+          "command": "roundtable.refreshProviders",
+          "when": "view == roundtable.rooms",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "roundtable.openGuardrails",
+          "when": "view == roundtable.rooms",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "roundtable.help",
+          "when": "view == roundtable.rooms || view == roundtable.chat",
+          "group": "9_help"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "roundtable.pinRoom",
+          "when": "view == roundtable.rooms && viewItem =~ /^(group|dm)$/",
+          "group": "inline@1"
+        },
+        {
+          "command": "roundtable.unpinRoom",
+          "when": "view == roundtable.rooms && viewItem =~ /^(group|dm)-pinned$/",
+          "group": "inline@1"
+        },
+        {
+          "command": "roundtable.renameRoom",
+          "when": "view == roundtable.rooms && viewItem =~ /^(group|dm)/",
+          "group": "1_edit@1"
+        },
+        {
+          "command": "roundtable.editParticipants",
+          "when": "view == roundtable.rooms && viewItem =~ /^group/",
+          "group": "1_edit@2"
+        },
+        {
+          "command": "roundtable.resetRoom",
+          "when": "view == roundtable.rooms && viewItem =~ /^(group|dm)/",
+          "group": "2_danger@1"
+        },
+        {
+          "command": "roundtable.deleteRoom",
+          "when": "view == roundtable.rooms && viewItem =~ /^(group|dm)/",
+          "group": "2_danger@2"
+        },
+        {
+          "command": "roundtable.openDm",
+          "when": "view == roundtable.rooms && viewItem =~ /^agent/",
+          "group": "inline@1"
+        },
+        {
+          "command": "roundtable.pinAgent",
+          "when": "view == roundtable.rooms && viewItem == agent",
+          "group": "inline@2"
+        },
+        {
+          "command": "roundtable.unpinAgent",
+          "when": "view == roundtable.rooms && viewItem == agent-pinned",
+          "group": "inline@2"
+        },
+        {
+          "command": "roundtable.changeModel",
+          "when": "view == roundtable.rooms && viewItem =~ /^agent/",
+          "group": "1_edit@1"
+        },
+        {
+          "command": "roundtable.renameAgent",
+          "when": "view == roundtable.rooms && viewItem =~ /^agent/",
+          "group": "1_edit@2"
+        },
+        {
+          "command": "roundtable.deleteAgent",
+          "when": "view == roundtable.rooms && viewItem =~ /^agent/",
+          "group": "2_danger@1"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "roundtable.sendSelection",
+          "when": "editorHasSelection",
+          "group": "roundtable@1"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "roundtable.openChat",
+          "group": "navigation@9"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "roundtable.open",
+          "when": "false"
+        },
+        {
+          "command": "roundtable.openDm",
+          "when": "false"
+        },
+        {
+          "command": "roundtable.pinRoom",
+          "when": "false"
+        },
+        {
+          "command": "roundtable.unpinRoom",
+          "when": "false"
+        },
+        {
+          "command": "roundtable.pinAgent",
+          "when": "false"
+        },
+        {
+          "command": "roundtable.unpinAgent",
+          "when": "false"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "roundtable.openChat",
+        "key": "ctrl+shift+r",
+        "mac": "cmd+shift+r"
+      },
+      {
+        "command": "roundtable.sendSelection",
+        "key": "ctrl+shift+.",
+        "mac": "cmd+shift+.",
+        "when": "editorHasSelection"
       }
     ],
     "configuration": {
@@ -68,14 +394,36 @@
           "type": "number",
           "default": 2,
           "minimum": 0,
-          "description": "Room spend cap in USD (estimated). Debate stops when reached. 0 disables the cap."
+          "description": "Room spend cap in USD (estimated, Claude agents only). Debate stops when reached. 0 disables the cap."
         },
         "roundtable.claudePath": {
           "type": "string",
           "default": "",
           "description": "Path to the Claude Code executable. Empty = auto-detect."
+        },
+        "roundtable.chatLocation": {
+          "type": "string",
+          "enum": [
+            "sidebar",
+            "editor"
+          ],
+          "default": "sidebar",
+          "description": "Where Open Chat shows the room."
+        },
+        "roundtable.defaultProvider": {
+          "type": "string",
+          "enum": [
+            "claude",
+            "codex",
+            "gemini",
+            "copilot",
+            "cursor"
+          ],
+          "default": "claude",
+          "description": "Provider preselected for new agents."
         }
       }
     }
-  }
+  },
+  "icon": "media/icon.png"
 }
