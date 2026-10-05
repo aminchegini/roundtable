@@ -1,645 +1,503 @@
-import { useEffect, useReducer, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { selectPreset, setGuardrailConfig, toggleGuardrail } from '../src/shared/guardrailsFile';
-import {
-  EFFORTS,
-  MODELS,
-  PERMISSION_MODES,
-  USER_ID,
-  WORKSPACE_MODES,
-  type AgentConfig,
-  type AgentView,
-  type FieldSpec,
-  type GuardrailEntry,
-  type GuardrailLayer,
-  type GuardrailsView,
-  type HostToWebview,
-  type PermissionRequest,
-  type RoomMessage,
-  type RoomStatus,
-  type SpecView,
-  type WebviewToHost,
-} from '../src/shared/protocol';
+import type { AgentView, RoomMeta, RoomStatus } from '../src/shared/protocol';
+import { Drawer, Guardrails, Help, ProviderBadge, available, providerOf } from './panels';
+import { PermissionCard, SpecCard, Transcript } from './room';
+import { initial, post, reduce, type State, type View } from './state';
 import './styles.css';
-
-declare function acquireVsCodeApi(): { postMessage(message: WebviewToHost): void };
-const vscode = acquireVsCodeApi();
-const post = (message: WebviewToHost) => vscode.postMessage(message);
-
-interface Live {
-  text: string;
-  activity: string;
-}
-
-interface State {
-  loaded: boolean;
-  agents: AgentView[];
-  messages: RoomMessage[];
-  room: RoomStatus;
-  permissions: PermissionRequest[];
-  guardrails: GuardrailsView;
-  spec: SpecView | undefined;
-  /** Streaming text and tool activity for agents mid-turn, by agent id. */
-  live: Record<string, Live>;
-}
-
-const initial: State = {
-  loaded: false,
-  agents: [],
-  messages: [],
-  room: { running: false, round: 0, maxRounds: 0, costUsd: 0, budgetUsd: 0 },
-  permissions: [],
-  guardrails: { profile: '', hasWorkspace: false, presets: [], file: { enabled: {}, disabled: [] }, entries: [], setup: [], busy: false },
-  spec: undefined,
-  live: {},
-};
-
-function reduce(state: State, m: HostToWebview): State {
-  switch (m.type) {
-    case 'state':
-      return {
-        loaded: true,
-        agents: m.agents,
-        messages: m.messages,
-        room: m.room,
-        permissions: m.permissions,
-        guardrails: m.guardrails,
-        spec: m.spec,
-        live: {},
-      };
-    case 'message': {
-      const live = { ...state.live };
-      delete live[m.message.from];
-      return { ...state, messages: [...state.messages, m.message], live };
-    }
-    case 'partial':
-      return { ...state, live: { ...state.live, [m.agentId]: { text: m.text, activity: '' } } };
-    case 'activity':
-      return { ...state, live: { ...state.live, [m.agentId]: { text: state.live[m.agentId]?.text ?? '', activity: m.text } } };
-    case 'agents': {
-      const speaking = new Set(m.agents.filter((a) => a.status === 'speaking').map((a) => a.config.id));
-      const live = Object.fromEntries(Object.entries(state.live).filter(([id]) => speaking.has(id)));
-      return { ...state, agents: m.agents, live };
-    }
-    case 'room':
-      return { ...state, room: m.room };
-    case 'permissions':
-      return { ...state, permissions: m.permissions };
-    case 'guardrails':
-      return { ...state, guardrails: m.guardrails };
-    case 'spec':
-      return { ...state, spec: m.spec };
-  }
-}
 
 function App() {
   const [state, dispatch] = useReducer(reduce, initial);
   const [editing, setEditing] = useState<string | undefined>();
-  const [view, setView] = useState<'room' | 'guardrails'>('room');
+  const [narrow, setNarrow] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const onMessage = (e: MessageEvent<HostToWebview>) => dispatch(e.data);
+    const onMessage = (e: MessageEvent) => dispatch(e.data);
     window.addEventListener('message', onMessage);
     post({ type: 'ready' });
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
-  const byId = new Map(state.agents.map((a) => [a.config.id, a]));
-  const editingAgent = editing ? byId.get(editing) : undefined;
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => setNarrow((entry?.contentRect.width ?? 1000) < 720));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [state.loaded]);
 
-  if (!state.loaded) return <div className="empty">Loading room…</div>;
+  const roomState = state.roomState;
+  const agents = roomState?.agents ?? [];
+  const byId = new Map(state.allAgents.map((a) => [a.config.id, a]));
+  for (const a of agents) byId.set(a.config.id, a);
+  const names = agents.map((a) => a.config.name);
+  const editingAgent = editing ? byId.get(editing) : undefined;
+  const room = state.rooms.rooms.find((r) => r.id === state.rooms.activeRoomId);
+  const setView = (view: View) => dispatch({ type: 'setView', view });
+
+  if (!state.loaded) {
+    return (
+      <div ref={rootRef} className="empty">
+        Loading…
+      </div>
+    );
+  }
 
   return (
-    <div className="app">
-      <Roster agents={state.agents} selected={editing} onSelect={setEditing} />
+    <div ref={rootRef} className={`app ${narrow ? 'narrow' : ''}`}>
+      {!narrow && state.view === 'room' && <Roster agents={agents} state={state} selected={editing} onSelect={setEditing} />}
       <main className="main">
-        <Header room={state.room} guardrails={state.guardrails} view={view} onView={setView} />
-        {view === 'guardrails' ? (
-          <Guardrails view={state.guardrails} />
+        <Header state={state} room={room} agents={agents} view={state.view} onView={setView} onEditAgent={setEditing} narrow={narrow} />
+        {state.view === 'guardrails' ? (
+          <Guardrails view={state.guardrails} providers={state.providers} />
+        ) : state.view === 'help' ? (
+          <Help providers={state.providers} />
         ) : (
           <>
-            <Transcript state={state} byId={byId} />
-            {state.spec?.status === 'pending' && <SpecCard spec={state.spec} />}
-            {state.permissions.map((p) => (
+            <Transcript state={state} byId={byId} names={names} onWelcomeAction={setView} />
+            {roomState?.spec?.status === 'pending' && <SpecCard spec={roomState.spec} names={names} />}
+            {roomState?.permissions.map((p) => (
               <PermissionCard key={p.requestId} request={p} agent={byId.get(p.agentId)} />
             ))}
-            <Composer running={state.room.running} names={state.agents.map((a) => a.config.name)} />
+            {roomState && <Composer state={state} room={room} onView={setView} />}
           </>
         )}
       </main>
       {editingAgent && (
-        <Drawer
-          key={editingAgent.config.id}
-          agent={editingAgent}
-          canRemove={state.agents.length > 1}
-          onClose={() => setEditing(undefined)}
-        />
+        <Drawer key={editingAgent.config.id} agent={editingAgent} providers={state.providers} canRemove={state.allAgents.length > 1} onClose={() => setEditing(undefined)} />
       )}
     </div>
   );
 }
 
-function Header(props: { room: RoomStatus; guardrails: GuardrailsView; view: 'room' | 'guardrails'; onView(v: 'room' | 'guardrails'): void }) {
-  const { room, guardrails, view } = props;
-  const budget = room.budgetUsd > 0 ? ` / $${room.budgetUsd.toFixed(2)}` : '';
-  const active = guardrails.entries.filter((e) => e.enabled).length;
-  const needsSetup = guardrails.setup.length > 0;
+// -------------------------------------------------------------------- header
+
+function Header(props: {
+  state: State;
+  room: RoomMeta | undefined;
+  agents: AgentView[];
+  view: View;
+  onView(v: View): void;
+  onEditAgent(id: string | undefined): void;
+  narrow: boolean;
+}) {
+  const { state, room, agents, view } = props;
+  const status: RoomStatus | undefined = state.roomState?.room;
+  const [menu, setMenu] = useState<'none' | 'rooms' | 'participants' | 'more'>('none');
+  const [renaming, setRenaming] = useState(false);
+  const [name, setName] = useState(room?.name ?? '');
+  const guardrailCount = state.guardrails.entries.filter((e) => e.enabled).length;
+  const needsSetup = state.guardrails.setup.length > 0;
+  const hasTokensOnly = agents.some((a) => !providerOf(state.providers, a.config.provider)?.costUsd);
+
+  const rename = () => {
+    if (room && name.trim() && name.trim() !== room.name) post({ type: 'renameRoom', id: room.id, name: name.trim() });
+    setRenaming(false);
+  };
+
   return (
     <header className="header">
-      <span className="title">Roundtable</span>
-      <span className="meter" title="Debate rounds since your last message">
-        Round {Math.min(room.round + (room.running ? 1 : 0), room.maxRounds)} / {room.maxRounds}
-      </span>
-      <span className="meter" title="Estimated spend for this room">
-        ${room.costUsd.toFixed(2)}
-        {budget}
-      </span>
-      {room.locks?.spec && <span className="badge">{room.locks.spec}</span>}
-      {room.locks?.review && <span className="badge">{room.locks.review}</span>}
-      <span className="spacer" />
-      <button
-        className={`secondary ${view === 'guardrails' ? 'active' : ''}`}
-        title="Project guardrails"
-        onClick={() => props.onView(view === 'guardrails' ? 'room' : 'guardrails')}
-      >
-        {view === 'guardrails' ? '← Room' : `Guardrails · ${active}${needsSetup ? ' ⚠' : ''}`}
-      </button>
-      {room.running && (
-        <button className="danger" onClick={() => post({ type: 'stop' })}>
-          Stop
+      <div className="header-row">
+        <button className="ghost room-switch" title="Switch room" onClick={() => setMenu(menu === 'rooms' ? 'none' : 'rooms')}>
+          {room?.kind === 'dm' ? '◉' : '▣'} <span className="caret">▾</span>
         </button>
+        {renaming && room ? (
+          <input
+            autoFocus
+            className="room-name-input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={rename}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') rename();
+              if (e.key === 'Escape') setRenaming(false);
+            }}
+          />
+        ) : (
+          <span
+            className="title room-name"
+            title="Click to rename"
+            onClick={() => {
+              if (!room) return;
+              setName(room.name);
+              setRenaming(true);
+            }}
+          >
+            {room?.name ?? 'Roundtable'}
+            {room?.kind === 'dm' && <span className="tag">DM</span>}
+            {room?.pinned && <span className="tag">pinned</span>}
+          </span>
+        )}
+        {view === 'room' && status && (
+          <>
+            <span className="meter" title="Debate rounds since your last message">
+              {Math.min(status.round + (status.running ? 1 : 0), status.maxRounds)}/{status.maxRounds}
+            </span>
+            <span className="meter" title={`Estimated spend${hasTokensOnly ? '; token-only providers are not in the USD figure' : ''}`}>
+              ${status.costUsd.toFixed(2)}
+              {status.budgetUsd > 0 ? `/${status.budgetUsd.toFixed(0)}` : ''}
+              {hasTokensOnly && status.tokens.input + status.tokens.output > 0 ? ` · ${fmtTokens(status.tokens.input + status.tokens.output)} tok` : ''}
+            </span>
+            {status.locks?.spec && <span className="badge">{status.locks.spec}</span>}
+            {status.locks?.review && <span className="badge">{status.locks.review}</span>}
+          </>
+        )}
+        <span className="spacer" />
+        {view !== 'room' ? (
+          <button className="secondary small" onClick={() => props.onView('room')}>
+            ← Room
+          </button>
+        ) : (
+          <>
+            {status?.running && (
+              <button className="danger small" onClick={() => post({ type: 'stop' })}>
+                Stop
+              </button>
+            )}
+            <button className="ghost small" title="Guardrails" onClick={() => props.onView('guardrails')}>
+              ⛨ {guardrailCount}
+              {needsSetup ? ' ⚠' : ''}
+            </button>
+            <button className="ghost small" title="Help" onClick={() => props.onView('help')}>
+              ?
+            </button>
+            <button className="ghost small" title="More" onClick={() => setMenu(menu === 'more' ? 'none' : 'more')}>
+              ⋯
+            </button>
+          </>
+        )}
+      </div>
+
+      {view === 'room' && room && (
+        <div className="header-row participants">
+          {agents.map((a) => (
+            <button key={a.config.id} className={`chip ${a.status}`} title={`${a.config.name} · ${a.config.model} — click for settings`} onClick={() => props.onEditAgent(a.config.id)}>
+              <span className="dot" style={{ background: a.config.color }} />
+              {a.config.name}
+              <ProviderBadge provider={providerOf(state.providers, a.config.provider)} />
+            </button>
+          ))}
+          {room.kind === 'group' && (
+            <button className="chip add" title="Add or remove participants" onClick={() => setMenu(menu === 'participants' ? 'none' : 'participants')}>
+              +
+            </button>
+          )}
+        </div>
       )}
-      <button
-        className="secondary"
-        title="Clear the transcript and start every agent on a fresh session"
-        onClick={() => post({ type: 'reset' })}
-      >
-        Reset room
-      </button>
+
+      {menu === 'rooms' && <RoomMenu state={state} onClose={() => setMenu('none')} />}
+      {menu === 'participants' && room && <ParticipantsMenu state={state} room={room} onClose={() => setMenu('none')} />}
+      {menu === 'more' && room && (
+        <div className="popover">
+          <button className="ghost" onClick={() => { post({ type: 'pinRoom', id: room.id, pinned: !room.pinned }); setMenu('none'); }}>
+            {room.pinned ? 'Unpin room' : 'Pin room'}
+          </button>
+          <button className="ghost" onClick={() => { setName(room.name); setRenaming(true); setMenu('none'); }}>
+            Rename room
+          </button>
+          {state.location === 'sidebar' && (
+            <button className="ghost" onClick={() => { post({ type: 'openInEditor' }); setMenu('none'); }}>
+              Open in editor
+            </button>
+          )}
+          <button className="ghost" onClick={() => { post({ type: 'reset' }); setMenu('none'); }}>
+            Reset room (clear transcript)
+          </button>
+          <button className="ghost danger-text" onClick={() => { post({ type: 'deleteRoom', id: room.id }); setMenu('none'); }}>
+            Delete room
+          </button>
+        </div>
+      )}
     </header>
   );
 }
 
-function Roster(props: { agents: AgentView[]; selected: string | undefined; onSelect(id: string | undefined): void }) {
-  return (
-    <aside className="roster">
-      <div className="roster-title">Agents</div>
-      {props.agents.map((a) => (
-        <button
-          key={a.config.id}
-          className={`agent ${props.selected === a.config.id ? 'selected' : ''}`}
-          onClick={() => props.onSelect(props.selected === a.config.id ? undefined : a.config.id)}
-        >
-          <span className={`dot ${a.status}`} style={{ background: a.config.color }} />
-          <span className="agent-body">
-            <span className="agent-name">
-              {a.config.name}
-              {a.config.reviewer && <span className="tag">reviewer</span>}
-            </span>
-            <span className="agent-meta">
-              {shortModel(a.config.model)} · {a.config.effort}
-            </span>
-            <span className="agent-meta">
-              {a.status === 'speaking' ? 'speaking…' : a.status === 'error' ? 'error' : `$${a.costUsd.toFixed(2)}`}
-            </span>
-          </span>
-        </button>
-      ))}
-      <button className="secondary add" onClick={() => post({ type: 'addAgent' })}>
-        + Add agent
-      </button>
-    </aside>
+function fmtTokens(n: number): string {
+  return n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(0)}k` : String(n);
+}
+
+function RoomMenu({ state, onClose }: { state: State; onClose(): void }) {
+  const [creating, setCreating] = useState<'none' | 'room' | 'dm'>('none');
+  const [name, setName] = useState('');
+  const [picked, setPicked] = useState<string[]>(state.allAgents.map((a) => a.config.id));
+  const rooms = state.rooms.rooms;
+  const groups = rooms.filter((r) => r.kind === 'group');
+  const dms = rooms.filter((r) => r.kind === 'dm');
+  const item = (r: RoomMeta) => (
+    <button key={r.id} className={`ghost ${r.id === state.rooms.activeRoomId ? 'active' : ''}`} onClick={() => { post({ type: 'switchRoom', id: r.id }); onClose(); }}>
+      {r.pinned ? '📌 ' : ''}
+      {r.name}
+      <span className="hint"> · {r.kind === 'dm' ? 'DM' : `${r.agentIds.length}`}</span>
+    </button>
   );
-}
-
-function shortModel(model: string): string {
-  return model.replace(/^claude-/, '').replace(/-\d{8}$/, '');
-}
-
-function Transcript({ state, byId }: { state: State; byId: Map<string, AgentView> }) {
-  const end = useRef<HTMLDivElement>(null);
-  const speaking = state.agents.filter((a) => a.status === 'speaking');
-  useEffect(() => {
-    end.current?.scrollIntoView({ block: 'end' });
-  }, [state.messages.length, state.live, speaking.length]);
-
   return (
-    <div className="transcript">
-      {state.messages.length === 0 && (
-        <div className="empty">
-          Ask the room something. Agents reply to you and to each other; use @Name to pick who goes first.
-        </div>
-      )}
-      {state.messages.map((m) => (
-        <Message key={m.id} message={m} agent={byId.get(m.from)} />
-      ))}
-      {speaking.map((a) => {
-        const live = state.live[a.config.id];
-        return (
-          <div key={a.config.id} className="msg live">
-            <div className="msg-from" style={{ color: a.config.color }}>
-              {a.config.name}
-            </div>
-            {live?.text ? <RichText text={live.text} /> : <div className="typing">thinking…</div>}
-            {live?.activity && <div className="activity">{live.activity}</div>}
+    <div className="popover rooms-menu">
+      {creating === 'none' && (
+        <>
+          {groups.length > 0 && <div className="popover-title">Rooms</div>}
+          {groups.map(item)}
+          {dms.length > 0 && <div className="popover-title">Direct messages</div>}
+          {dms.map(item)}
+          <div className="row">
+            <button className="secondary small" onClick={() => setCreating('room')}>
+              + Room
+            </button>
+            <button className="secondary small" onClick={() => setCreating('dm')}>
+              + DM
+            </button>
           </div>
-        );
-      })}
-      <div ref={end} />
-    </div>
-  );
-}
-
-function Message({ message, agent }: { message: RoomMessage; agent: AgentView | undefined }) {
-  if (message.from === 'system') return <div className="msg system">{message.text}</div>;
-  const isUser = message.from === USER_ID;
-  return (
-    <div className={`msg ${isUser ? 'user' : ''}`}>
-      <div className="msg-from" style={{ color: isUser ? undefined : agent?.config.color }}>
-        {isUser ? 'You' : (agent?.config.name ?? 'Former agent')}
-      </div>
-      <RichText text={message.text} />
-    </div>
-  );
-}
-
-/** Minimal rendering: fenced code blocks, inline code, and @mentions. */
-function RichText({ text }: { text: string }) {
-  const parts = text.split(/```(?:\w*)\n?([\s\S]*?)(?:```|$)/g);
-  return (
-    <div className="msg-text">
-      {parts.map((part, i) =>
-        i % 2 === 1 ? <pre key={i}>{part.replace(/\n$/, '')}</pre> : <span key={i}>{inline(i > 0 ? part.replace(/^\n+/, '') : part)}</span>,
+        </>
       )}
-    </div>
-  );
-}
-
-function inline(text: string): ReactNode[] {
-  return text.split(/(`[^`\n]+`|@[\w-]+)/g).map((piece, i) => {
-    if (piece.startsWith('`') && piece.length > 2) return <code key={i}>{piece.slice(1, -1)}</code>;
-    if (piece.startsWith('@')) return <span key={i} className="mention">{piece}</span>;
-    return piece;
-  });
-}
-
-function PermissionCard({ request, agent }: { request: PermissionRequest; agent: AgentView | undefined }) {
-  const respond = (decision: 'allow' | 'always' | 'deny') =>
-    post({ type: 'permissionResponse', requestId: request.requestId, decision });
-  return (
-    <div className="card warn">
-      <div>
-        <strong style={{ color: agent?.config.color }}>{agent?.config.name ?? 'Agent'}</strong> wants to use{' '}
-        <strong>{request.toolName}</strong>
-      </div>
-      <pre>{request.detail}</pre>
-      <div className="row">
-        <button onClick={() => respond('allow')}>Allow once</button>
-        {request.canAlways && (
-          <button className="secondary" onClick={() => respond('always')}>
-            Always allow
-          </button>
-        )}
-        <button className="secondary" onClick={() => respond('deny')}>
-          Deny
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function SpecCard({ spec }: { spec: SpecView }) {
-  const [note, setNote] = useState('');
-  const [open, setOpen] = useState(true);
-  const decide = (decision: 'approve' | 'changes') => {
-    post({ type: 'specDecision', decision, note });
-    setNote('');
-  };
-  return (
-    <div className="card info">
-      <div className="row between">
-        <div>
-          <strong>Spec from {spec.agentName}</strong> — approve before agents may edit
-        </div>
-        <button className="secondary" onClick={() => setOpen(!open)}>
-          {open ? 'Collapse' : 'Expand'}
-        </button>
-      </div>
-      {open && (
-        <div className="spec-body">
-          <RichText text={spec.markdown} />
+      {creating === 'room' && (
+        <div className="create-form">
+          <input autoFocus placeholder="Room name" value={name} onChange={(e) => setName(e.target.value)} />
+          {state.allAgents.map((a) => (
+            <label key={a.config.id} className="inline">
+              <input type="checkbox" checked={picked.includes(a.config.id)} onChange={(e) => setPicked(e.target.checked ? [...picked, a.config.id] : picked.filter((id) => id !== a.config.id))} />
+              {a.config.name} <span className="hint">· {a.config.model}</span>
+            </label>
+          ))}
+          <div className="row">
+            <button disabled={picked.length === 0} onClick={() => { post({ type: 'createRoom', kind: 'group', name: name || undefined, agentIds: picked }); onClose(); }}>
+              Create
+            </button>
+            <button className="secondary" onClick={() => setCreating('none')}>
+              Back
+            </button>
+          </div>
         </div>
       )}
-      <input value={note} placeholder="Optional note for the agents" onChange={(e) => setNote(e.target.value)} />
-      <div className="row">
-        <button onClick={() => decide('approve')}>Approve spec</button>
-        <button className="secondary" onClick={() => decide('changes')}>
-          Request changes
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function Composer({ running, names }: { running: boolean; names: string[] }) {
-  const [text, setText] = useState('');
-  const send = () => {
-    if (!text.trim()) return;
-    post({ type: 'send', text });
-    setText('');
-  };
-  return (
-    <div className="composer">
-      <textarea
-        value={text}
-        rows={3}
-        placeholder={
-          running
-            ? 'Interject — agents will see this on their next turn'
-            : `Message the room (${names.map((n) => `@${n}`).join(' ')} or @all)`
-        }
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-            e.preventDefault();
-            send();
-          }
-        }}
-      />
-      <button onClick={send} disabled={!text.trim()}>
-        Send
-      </button>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------- guardrails
-
-const LAYERS: Array<{ id: GuardrailLayer; title: string; blurb: string }> = [
-  { id: 'gate', title: 'Gates', blurb: 'Enforced by hooks on every tool call. Agents cannot work around them.' },
-  { id: 'knowledge', title: 'Knowledge', blurb: 'Project files every agent reads, created from detection when missing.' },
-  { id: 'process', title: 'Process', blurb: 'How work flows through the room: review, specs, isolation.' },
-];
-
-function Guardrails({ view }: { view: GuardrailsView }) {
-  const presetIds = view.presets.find((p) => p.id === view.file.preset)?.guardrailIds ?? [];
-  const save = (file: GuardrailsView['file']) => post({ type: 'setGuardrails', file });
-  if (!view.hasWorkspace) {
-    return <div className="empty">Open a folder to configure guardrails. They live in .roundtable/guardrails.json inside the project.</div>;
-  }
-  return (
-    <div className="guardrails">
-      <div className="hint">Detected: {view.profile}</div>
-
-      <section>
-        <h3>Preset</h3>
-        <div className="presets">
-          {view.presets.map((p) => (
-            <button
-              key={p.id}
-              className={`preset ${view.file.preset === p.id ? 'selected' : ''}`}
-              onClick={() => save(selectPreset(view.file, p.id))}
-            >
-              <span className="preset-title">{p.title}</span>
-              <span className="hint">{p.summary}</span>
+      {creating === 'dm' && (
+        <div className="create-form">
+          <div className="popover-title">Message which agent?</div>
+          {state.allAgents.map((a) => (
+            <button key={a.config.id} className="ghost" onClick={() => { post({ type: 'createRoom', kind: 'dm', agentIds: [a.config.id] }); onClose(); }}>
+              <span className="dot" style={{ background: a.config.color }} /> {a.config.name} <span className="hint">· {a.config.model}</span>
             </button>
           ))}
-          <button className={`preset ${!view.file.preset ? 'selected' : ''}`} onClick={() => save(selectPreset(view.file, undefined))}>
-            <span className="preset-title">Custom</span>
-            <span className="hint">Start from nothing and pick guardrails one by one.</span>
+          <button className="secondary small" onClick={() => setCreating('none')}>
+            Back
           </button>
         </div>
-      </section>
-
-      {view.setup.length > 0 && (
-        <section className="card warn">
-          <strong>Setup needed for the enabled guardrails</strong>
-          <ul>
-            {view.setup.map((s, i) => (
-              <li key={i}>
-                {s.description}
-                {s.detail && <code> {s.detail}</code>}
-              </li>
-            ))}
-          </ul>
-          <div className="row">
-            <button disabled={view.busy} onClick={() => post({ type: 'applySetup' })}>
-              {view.busy ? 'Applying…' : 'Apply setup'}
-            </button>
-            <span className="hint">Writes the files listed above into the project and installs packages with the detected package manager.</span>
-          </div>
-        </section>
       )}
-
-      {LAYERS.map((layer) => (
-        <section key={layer.id}>
-          <h3>{layer.title}</h3>
-          <div className="hint">{layer.blurb}</div>
-          {view.entries
-            .filter((e) => e.layer === layer.id)
-            .map((entry) => (
-              <GuardrailRow
-                key={entry.id}
-                entry={entry}
-                onToggle={(on) => save(toggleGuardrail(view.file, presetIds, entry.id, on))}
-                onSave={(config) => save(setGuardrailConfig(view.file, entry.id, config))}
-              />
-            ))}
-        </section>
-      ))}
     </div>
   );
 }
 
-function GuardrailRow(props: { entry: GuardrailEntry; onToggle(on: boolean): void; onSave(config: Record<string, unknown>): void }) {
-  const { entry } = props;
-  const [open, setOpen] = useState(false);
-  const status = !entry.applies
-    ? { label: 'not for this stack', cls: 'muted' }
-    : !entry.enabled
-      ? undefined
-      : entry.status === 'ready'
-        ? { label: 'active', cls: 'ok' }
-        : entry.status === 'needs-setup'
-          ? { label: 'needs setup', cls: 'warn' }
-          : { label: 'tool missing', cls: 'warn' };
+function ParticipantsMenu({ state, room, onClose }: { state: State; room: RoomMeta; onClose(): void }) {
+  const toggle = (id: string, on: boolean) => {
+    const next = on ? [...room.agentIds, id] : room.agentIds.filter((a) => a !== id);
+    post({ type: 'setParticipants', id: room.id, agentIds: next });
+  };
   return (
-    <div className={`guardrail ${entry.enabled ? 'enabled' : ''}`}>
-      <label className="guardrail-head">
-        <input type="checkbox" checked={entry.enabled} disabled={!entry.applies} onChange={(e) => props.onToggle(e.target.checked)} />
-        <span className="guardrail-title">{entry.title}</span>
-        {status && <span className={`status ${status.cls}`}>{status.label}</span>}
-        <span className="spacer" />
-        {entry.fields.length > 0 && entry.applies && (
-          <button className="secondary small" onClick={(e) => { e.preventDefault(); setOpen(!open); }}>
-            {open ? 'Hide' : 'Configure'}
-          </button>
-        )}
-      </label>
-      <div className="hint">{entry.summary}</div>
-      {open && <ConfigForm key={JSON.stringify(entry.config)} fields={entry.fields} config={entry.config} onSave={props.onSave} />}
-    </div>
-  );
-}
-
-function ConfigForm(props: { fields: FieldSpec[]; config: Record<string, unknown>; onSave(config: Record<string, unknown>): void }) {
-  const [draft, setDraft] = useState<Record<string, unknown>>(props.config);
-  const set = (key: string, value: unknown) => setDraft((d) => ({ ...d, [key]: value }));
-  return (
-    <div className="config-form">
-      {props.fields.map((f) => (
-        <label key={f.key} className={f.type === 'boolean' ? 'inline' : ''}>
-          {f.type === 'boolean' ? (
-            <>
-              <input type="checkbox" checked={!!draft[f.key]} onChange={(e) => set(f.key, e.target.checked)} /> {f.label}
-            </>
-          ) : (
-            <>
-              {f.label}
-              {f.type === 'select' ? (
-                <select value={String(draft[f.key] ?? '')} onChange={(e) => set(f.key, e.target.value)}>
-                  {f.options.map((o) => (
-                    <option key={o}>{o}</option>
-                  ))}
-                </select>
-              ) : f.type === 'number' ? (
-                <input type="number" value={Number(draft[f.key] ?? 0)} onChange={(e) => set(f.key, Number(e.target.value))} />
-              ) : f.type === 'list' ? (
-                <textarea
-                  rows={3}
-                  value={Array.isArray(draft[f.key]) ? (draft[f.key] as string[]).join('\n') : ''}
-                  placeholder="One per line"
-                  onChange={(e) => set(f.key, e.target.value.split('\n').map((s) => s.trim()).filter(Boolean))}
-                />
-              ) : (
-                <input value={String(draft[f.key] ?? '')} onChange={(e) => set(f.key, e.target.value)} />
-              )}
-            </>
-          )}
-          {f.help && <span className="hint">{f.help}</span>}
+    <div className="popover">
+      <div className="popover-title">Participants</div>
+      {state.allAgents.map((a) => (
+        <label key={a.config.id} className="inline">
+          <input type="checkbox" checked={room.agentIds.includes(a.config.id)} onChange={(e) => toggle(a.config.id, e.target.checked)} />
+          <span className="dot" style={{ background: a.config.color }} />
+          {a.config.name} <span className="hint">· {providerOf(state.providers, a.config.provider)?.title} {a.config.model}</span>
         </label>
       ))}
       <div className="row">
-        <button onClick={() => props.onSave(draft)}>Save</button>
+        <button className="secondary small" onClick={() => post({ type: 'addAgent' })}>
+          + New agent
+        </button>
+        <button className="secondary small" onClick={onClose}>
+          Done
+        </button>
       </div>
     </div>
   );
 }
 
-// -------------------------------------------------------------------- drawer
+// -------------------------------------------------------------------- roster
 
-function Drawer({ agent, canRemove, onClose }: { agent: AgentView; canRemove: boolean; onClose(): void }) {
-  const [draft, setDraft] = useState<AgentConfig>(agent.config);
-  const [allowed, setAllowed] = useState(agent.config.allowedTools.join(', '));
-  const [disallowed, setDisallowed] = useState(agent.config.disallowedTools.join(', '));
-  const set = <K extends keyof AgentConfig>(key: K, value: AgentConfig[K]) => setDraft((d) => ({ ...d, [key]: value }));
-  const list = (value: string) => value.split(',').map((s) => s.trim()).filter(Boolean);
+function Roster(props: { agents: AgentView[]; state: State; selected: string | undefined; onSelect(id: string | undefined): void }) {
+  const { state } = props;
+  return (
+    <aside className="roster">
+      <div className="roster-title">In this room</div>
+      {props.agents.map((a) => {
+        const provider = providerOf(state.providers, a.config.provider);
+        const models = provider?.models ?? [];
+        const known = models.some((m) => m.id === a.config.model);
+        return (
+          <div key={a.config.id} className={`agent ${props.selected === a.config.id ? 'selected' : ''} ${available(provider) ? '' : 'unavailable'}`}>
+            <button className="agent-main" onClick={() => props.onSelect(props.selected === a.config.id ? undefined : a.config.id)}>
+              <span className={`dot ${a.status}`} style={{ background: a.config.color }} />
+              <span className="agent-body">
+                <span className="agent-name">
+                  {a.config.name}
+                  {a.config.reviewer && <span className="tag">reviewer</span>}
+                  <ProviderBadge provider={provider} />
+                </span>
+                <span className="agent-meta">
+                  {a.status === 'speaking' ? 'speaking…' : a.status === 'error' ? 'error' : provider?.costUsd ? `$${a.costUsd.toFixed(2)}` : `${fmtTokens((a.tokens?.input ?? 0) + (a.tokens?.output ?? 0))} tok`} · {a.config.effort}
+                </span>
+              </span>
+            </button>
+            <select
+              className="agent-model"
+              title="Model"
+              value={known ? a.config.model : '__custom'}
+              onChange={(e) => {
+                if (e.target.value === '__custom') props.onSelect(a.config.id);
+                else post({ type: 'saveAgent', config: { ...a.config, model: e.target.value } });
+              }}
+            >
+              {models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label}
+                </option>
+              ))}
+              {!known && <option value="__custom">{a.config.model}</option>}
+              {known && <option value="__custom">Other…</option>}
+            </select>
+          </div>
+        );
+      })}
+      {props.agents.length === 0 && <div className="hint">No participants. Use + in the header.</div>}
+    </aside>
+  );
+}
 
-  const save = () => {
-    const name = draft.name.trim().replace(/\s+/g, '-');
-    if (!name) return;
-    post({
-      type: 'saveAgent',
-      config: { ...draft, name, model: draft.model.trim() || agent.config.model, allowedTools: list(allowed), disallowedTools: list(disallowed) },
-    });
-    onClose();
+// ------------------------------------------------------------------ composer
+
+function Composer({ state, room, onView }: { state: State; room: RoomMeta | undefined; onView(v: View): void }) {
+  const [text, setText] = useState('');
+  const [mentionIndex, setMentionIndex] = useState(0);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const running = state.roomState?.room.running ?? false;
+  const agents = state.roomState?.agents ?? [];
+  const names = agents.map((a) => a.config.name);
+
+  const mentionMatch = /(^|\s)@([\w-]*)$/.exec(text);
+  const suggestions = mentionMatch ? ['all', ...names].filter((n) => n.toLowerCase().startsWith((mentionMatch[2] ?? '').toLowerCase())) : [];
+
+  const complete = (name: string) => {
+    if (!mentionMatch) return;
+    setText(text.slice(0, text.length - (mentionMatch[2]?.length ?? 0)) + `${name} `);
+    setMentionIndex(0);
+    ref.current?.focus();
+  };
+
+  const runCommand = (line: string): boolean => {
+    const [cmd = '', ...rest] = line.slice(1).split(/\s+/);
+    const arg = rest.join(' ');
+    const findAgent = (n: string) => state.allAgents.find((a) => a.config.name.toLowerCase() === n.toLowerCase().replace(/^@/, ''));
+    switch (cmd.toLowerCase()) {
+      case 'stop':
+        post({ type: 'stop' });
+        return true;
+      case 'reset':
+        post({ type: 'reset' });
+        return true;
+      case 'guardrails':
+        onView('guardrails');
+        return true;
+      case 'help':
+        onView('help');
+        return true;
+      case 'dm': {
+        const agent = findAgent(arg);
+        if (agent) post({ type: 'createRoom', kind: 'dm', agentIds: [agent.config.id] });
+        return !!agent;
+      }
+      case 'room': {
+        const target = state.rooms.rooms.find((r) => r.name.toLowerCase() === arg.toLowerCase());
+        if (target) post({ type: 'switchRoom', id: target.id });
+        else post({ type: 'createRoom', kind: 'group', name: arg || undefined, agentIds: room?.agentIds ?? [] });
+        return true;
+      }
+      case 'model': {
+        const [who = '', ...model] = rest;
+        const agent = findAgent(who);
+        if (agent && model.length > 0) post({ type: 'saveAgent', config: { ...agent.config, model: model.join(' ') } });
+        return !!agent;
+      }
+      default:
+        return false;
+    }
+  };
+
+  const send = () => {
+    const value = text.trim();
+    if (!value) return;
+    if (value.startsWith('/') && runCommand(value)) {
+      setText('');
+      return;
+    }
+    post({ type: 'send', text: value });
+    setText('');
   };
 
   return (
-    <aside className="drawer">
-      <div className="drawer-head">
-        <span className="title">Agent settings</span>
-        <button className="secondary" onClick={onClose}>
-          Close
+    <div className="composer">
+      {suggestions.length > 0 && (
+        <div className="suggestions">
+          {suggestions.map((n, i) => (
+            <button key={n} className={`ghost ${i === mentionIndex ? 'active' : ''}`} onMouseDown={(e) => { e.preventDefault(); complete(n); }}>
+              @{n}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="composer-row">
+        <textarea
+          ref={ref}
+          value={text}
+          rows={narrowRows(text)}
+          placeholder={
+            running
+              ? 'Interject — agents see this on their next turn · Esc stops'
+              : room?.kind === 'dm'
+                ? `Message ${names[0] ?? 'the agent'}`
+                : names.length > 0
+                  ? `Message the room · @Name to pick who answers first · / for commands`
+                  : 'Add participants first'
+          }
+          onChange={(e) => {
+            setText(e.target.value);
+            setMentionIndex(0);
+          }}
+          onKeyDown={(e) => {
+            if (suggestions.length > 0 && (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey))) {
+              e.preventDefault();
+              complete(suggestions[mentionIndex] ?? suggestions[0]!);
+              return;
+            }
+            if (suggestions.length > 0 && e.key === 'ArrowDown') {
+              e.preventDefault();
+              setMentionIndex((mentionIndex + 1) % suggestions.length);
+              return;
+            }
+            if (suggestions.length > 0 && e.key === 'ArrowUp') {
+              e.preventDefault();
+              setMentionIndex((mentionIndex - 1 + suggestions.length) % suggestions.length);
+              return;
+            }
+            if (e.key === 'Escape' && running) {
+              post({ type: 'stop' });
+              return;
+            }
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              send();
+            }
+          }}
+        />
+        <button onClick={send} disabled={!text.trim()} title="Send (Enter)">
+          Send
         </button>
       </div>
-      <label>
-        Name
-        <input value={draft.name} onChange={(e) => set('name', e.target.value)} />
-      </label>
-      <label>
-        Color
-        <input type="color" value={draft.color} onChange={(e) => set('color', e.target.value)} />
-      </label>
-      <label>
-        Model
-        <input list="models" value={draft.model} onChange={(e) => set('model', e.target.value)} />
-        <datalist id="models">
-          {MODELS.map((m) => (
-            <option key={m} value={m} />
-          ))}
-        </datalist>
-        {agent.liveModel && agent.liveModel !== draft.model && <span className="hint">running: {agent.liveModel}</span>}
-      </label>
-      <label>
-        Effort
-        <select value={draft.effort} onChange={(e) => set('effort', e.target.value as AgentConfig['effort'])}>
-          {EFFORTS.map((v) => (
-            <option key={v}>{v}</option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Permission mode
-        <select
-          value={draft.permissionMode}
-          onChange={(e) => set('permissionMode', e.target.value as AgentConfig['permissionMode'])}
-        >
-          {PERMISSION_MODES.map((v) => (
-            <option key={v}>{v}</option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Workspace
-        <select
-          value={draft.workspaceMode}
-          onChange={(e) => set('workspaceMode', e.target.value as AgentConfig['workspaceMode'])}
-        >
-          {WORKSPACE_MODES.map((v) => (
-            <option key={v}>{v}</option>
-          ))}
-        </select>
-        <span className="hint">shared: edits the open folder · worktree: own git worktree · read-only: no edits or shell</span>
-      </label>
-      <label>
-        Role
-        <textarea rows={6} value={draft.role} onChange={(e) => set('role', e.target.value)} />
-      </label>
-      <label className="inline">
-        <input type="checkbox" checked={!!draft.reviewer} onChange={(e) => set('reviewer', e.target.checked)} /> Reviewer
-        <span className="hint">Read-only; with the reviewer-veto guardrail, others cannot edit until this agent approves.</span>
-      </label>
-      <label className="inline">
-        <input type="checkbox" checked={!!draft.canEditProtected} onChange={(e) => set('canEditProtected', e.target.checked)} /> May edit protected paths
-      </label>
-      <label>
-        Always-allowed tools
-        <input value={allowed} placeholder="e.g. Read, Grep, Bash(npm test:*)" onChange={(e) => setAllowed(e.target.value)} />
-      </label>
-      <label>
-        Disallowed tools
-        <input value={disallowed} placeholder="e.g. WebFetch, Bash" onChange={(e) => setDisallowed(e.target.value)} />
-      </label>
-      <span className="hint">Model, effort and permission mode apply immediately. Other changes restart this agent's session on its next turn, keeping its history.</span>
-      <div className="row">
-        <button onClick={save} disabled={!draft.name.trim()}>
-          Save
-        </button>
-        {canRemove && (
-          <button
-            className="danger"
-            onClick={() => {
-              post({ type: 'removeAgent', id: agent.config.id });
-              onClose();
-            }}
-          >
-            Remove agent
-          </button>
-        )}
-      </div>
-    </aside>
+    </div>
   );
+}
+
+function narrowRows(text: string): number {
+  return Math.min(8, Math.max(2, text.split('\n').length));
 }
 
 createRoot(document.getElementById('root')!).render(<App />);
