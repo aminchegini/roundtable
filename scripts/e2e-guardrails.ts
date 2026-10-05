@@ -10,10 +10,9 @@ import { ProcessRunner } from '../src/guardrails/runner';
 import { GuardrailRuntime } from '../src/guardrails/runtime';
 import { resolveGuardrails } from '../src/guardrails/store';
 import { Room } from '../src/room/Room';
-import { SdkAgentSession } from '../src/room/SdkAgentSession';
+import { getProvider } from '../src/providers/registry';
 import type { AgentConfig } from '../src/shared/protocol';
 
-const sdk = await import('@anthropic-ai/claude-agent-sdk');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'roundtable-e2e-gr-'));
 fs.mkdirSync(path.join(root, 'src'));
 fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'scratch', private: true, scripts: {}, devDependencies: { typescript: '*' } }, null, 2));
@@ -37,6 +36,7 @@ const kit: AgentConfig = {
   id: 'kit',
   name: 'Kit',
   color: '#888',
+  provider: 'claude',
   role: 'Implementer. Do exactly what the user asks, briefly.',
   model: 'claude-haiku-4-5-20251001',
   effort: 'low',
@@ -84,8 +84,7 @@ room = new Room(
       if (e.type === 'turn-start') runtime.onTurnStart(e.agentId);
     },
     createSession: (config, roster) =>
-      new SdkAgentSession(config, roster, {
-        sdk,
+      getProvider(config.provider).createSession(config, roster, {
         claudePath,
         env,
         resumeId: undefined,

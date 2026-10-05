@@ -7,6 +7,7 @@ function config(name: string): AgentConfig {
     id: name.toLowerCase(),
     name,
     color: '#000000',
+    provider: 'claude',
     role: '',
     model: 'test',
     effort: 'medium',

@@ -1,70 +1,44 @@
 # Roundtable
 
-VS Code extension: several local Claude agents in one room, talking to you and to each other. Each agent has its own model, effort, permission mode, role, tools and workspace mode, editable while the room is running.
+**Several AI coding agents in one room inside VS Code — from the vendors you already pay for, on your machine, under rules you set.**
 
-Agents are ordinary Claude Code sessions run through the Claude Agent SDK on your machine. They use your existing Claude Code login; nothing runs in a cloud agent service.
+Put a Claude architect, a Codex implementer and a Gemini skeptic in a room. Ask a question. They answer you and each other, one at a time, until they run out of things to say. DM one of them when you want a private word. Pin the rooms you live in. Add guardrails so the whole cast obeys your project's architecture.
 
-## Run it
+![Roundtable in the editor](docs/screenshot-editor.jpg)
+
+## 60-second start
 
 ```bash
-npm install
-npm run build
+git clone <this repo> roundtable && cd roundtable
+npm install && npm run build
 ```
 
-Open this folder in VS Code and press F5 ("Run Extension"). In the new window, open a project folder and run **Roundtable: Open Room** from the command palette.
+Open the folder in VS Code, press **F5**, open a project in the new window, click the **Roundtable** icon in the Activity Bar.
 
-Works in Cursor too, since it loads VS Code extensions.
+Full walkthrough: [docs/getting-started.md](docs/getting-started.md).
 
-## How the room works
+## What you get
 
-- You send a message. Agents answer one at a time; each sees what was said since it last spoke.
-- `@Name` gives that agent the next turn. `@all` queues everyone. Agents can do the same to each other.
-- An agent with nothing to add passes. The debate ends when every agent passes in a row.
-- Hard stops: `roundtable.maxRounds` (default 6 rounds after your last message), `roundtable.budgetUsd` (default $2 estimated spend for the room), and the Stop button.
-- You can interject mid-debate; that resets the round counter.
+- **Rooms and DMs** — group debates or one-on-one chats, each with its own memory per agent. Create, rename, pin, delete from the sidebar, the room switcher or the command palette.
+- **Five vendors, your logins** — Claude (Claude Code), OpenAI Codex (ChatGPT), Google Gemini (Gemini CLI), GitHub Copilot, Cursor agent. Roundtable shows which are installed and signed in, greys out the rest with setup hints, and lists each vendor's models. Nothing runs in a cloud agent service.
+- **Per-agent control** — vendor, model (one-click switch), effort, permission mode, role, tool rules, shared folder / own git worktree / read-only. Live where the vendor allows.
+- **A real debate** — @mentions pick who speaks, agents pass when they have nothing new, round and budget caps stop runaway loops, Esc stops now. Interject any time.
+- **Guardrails** — presets *solo*, *team*, *factory* or à la carte: shell safety, protected paths, secrets scan, typecheck/lint/test gates, module boundaries, AGENTS.md, architecture map, ADRs, definition of done, reviewer veto, spec-first approval, worktree per implementer. Enforced with hooks for Claude and Copilot, checked after every turn for the others.
+- **VS Code native** — Activity Bar icon, Rooms & Agents tree with context menus, sidebar chat or editor tab, status bar, `⌘⇧R` to open, `⌘⇧.` to send the editor selection to the room.
 
-## Per-agent settings
+## Docs
 
-Click an agent in the roster.
-
-| Setting | Applies |
+| | |
 | --- | --- |
-| Model, effort, permission mode | Immediately, on the live session |
-| Name, role, tool lists, workspace mode | On the agent's next turn (session restarts and resumes its history) |
+| [Getting started](docs/getting-started.md) | install, providers, first conversation |
+| [Concepts](docs/concepts.md) | agents, rooms, DMs, turns, sessions, cost |
+| [Providers](docs/providers.md) | per-vendor setup, models, setting mappings, enforcement levels |
+| [Agents](docs/agents.md) · [Rooms](docs/rooms.md) | every setting and action |
+| [Guardrails](docs/guardrails.md) | catalog, presets, setup, adding your own |
+| [Troubleshooting](docs/troubleshooting.md) · [FAQ](docs/faq.md) | |
+| [Development](docs/development.md) | layout, data flow, tests, release |
+| [Changelog](CHANGELOG.md) | |
 
-Workspace modes: `shared` works in the open folder, `worktree` gives the agent its own git worktree (stored in extension storage, needs a git repo), `read-only` removes Edit, Write, NotebookEdit and Bash.
+## Status
 
-Agents are saved to `.roundtable/agents.json` in the workspace. The transcript and session ids are kept in VS Code workspace state, so reopening the room continues where it left off. **Reset room** clears both.
-
-Tool calls that need approval show up as a prompt in the room, tagged with the agent's name. `bypassPermissions` is not offered.
-
-## Guardrails
-
-Project-level rules every agent must follow, picked per project from presets (**solo**, **team**, **factory**) or one by one, stored in `.roundtable/guardrails.json`. Gates are enforced with SDK hooks on every tool call (shell safety, protected paths, secrets, typecheck, lint, tests, module boundaries); knowledge guardrails create and feed project files (AGENTS.md, architecture map, ADRs, definition of done); process guardrails change how work flows (reviewer veto, spec-first approval, worktree per implementer). Open **Guardrails** in the room header; enabling something that needs files or tools shows a setup list you apply with one click. Details in [docs/guardrails.md](docs/guardrails.md).
-
-## Auth
-
-Sessions use the local `claude` executable and its login (`roundtable.claudePath` overrides auto-detection). If you would rather bill an API key, run **Roundtable: Set API Key**, then reset the room.
-
-## Development
-
-```bash
-npm test          # scheduler tests, no API calls
-npm run typecheck
-npm run preview   # webview in a browser with fake data: http://localhost:5179/
-npm run e2e       # live two-agent debate through the SDK (costs a few cents)
-npm run e2e:guardrails  # live guardrail check on a scratch TypeScript project
-```
-
-Layout:
-
-- `src/room/Room.ts` — turn scheduler and caps. No VS Code or SDK imports, so it is unit-tested with fake sessions.
-- `src/room/SdkAgentSession.ts` — one long-lived SDK `query()` per agent, the `pass_turn` tool, permission bridge.
-- `src/guardrails/` — detection, catalog, presets, runtime (hooks/prompts/tools per agent), setup.
-- `src/panel/RoomPanel.ts` — webview host, persistence, wiring.
-- `webview/` — React UI.
-- `src/shared/protocol.ts` — message types shared by host and webview.
-
-## Not in v1
-
-Other model providers, moderator and mention-only turn modes, agents speaking in parallel, full markdown rendering, Marketplace packaging. Guardrails: Python/Go catalogs, API contract diffing, supply-chain scanners, CI export of the same gates.
+0.3.0. Runs from source; not on the Marketplace yet. Claude, Codex and Copilot are exercised end-to-end on the author's machine; the Gemini and Cursor adapters are tested against their documented event formats and need an installed, signed-in CLI to try live. Cursor support is marked experimental.

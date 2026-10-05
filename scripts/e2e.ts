@@ -3,11 +3,10 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-import { Room } from '../src/room/Room';
-import { SdkAgentSession } from '../src/room/SdkAgentSession';
+import { Room, type AgentSession } from '../src/room/Room';
+import { getProvider } from '../src/providers/registry';
 import type { AgentConfig } from '../src/shared/protocol';
 
-const sdk = await import('@anthropic-ai/claude-agent-sdk');
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'roundtable-e2e-'));
 const claudePath = [path.join(os.homedir(), '.local/bin/claude')].find((p) => fs.existsSync(p));
 const env: Record<string, string | undefined> = { ...process.env };
@@ -18,6 +17,7 @@ function agent(name: string, role: string): AgentConfig {
     id: name.toLowerCase(),
     name,
     color: '#888888',
+    provider: 'claude',
     role,
     model: 'claude-haiku-4-5-20251001',
     effort: 'low',
@@ -28,7 +28,7 @@ function agent(name: string, role: string): AgentConfig {
   };
 }
 
-const sessions = new Map<string, SdkAgentSession>();
+const sessions = new Map<string, AgentSession>();
 const room = new Room(
   {
     getCaps: () => ({ maxRounds: 2, budgetUsd: 1 }),
@@ -36,8 +36,7 @@ const room = new Room(
       if (e.type === 'message') console.log(`\n<${e.message.from}> ${e.message.text}`);
     },
     createSession: (config, roster) => {
-      const session = new SdkAgentSession(config, roster, {
-        sdk,
+      const session = getProvider(config.provider).createSession(config, roster, {
         claudePath,
         env,
         resumeId: undefined,

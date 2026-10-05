@@ -39,6 +39,7 @@ function agent(name: string, extra: Partial<AgentConfig> = {}): AgentConfig {
     id: name.toLowerCase(),
     name,
     color: '#000',
+    provider: 'claude',
     role: '',
     model: 'm',
     effort: 'low',
@@ -47,7 +48,7 @@ function agent(name: string, extra: Partial<AgentConfig> = {}): AgentConfig {
     disallowedTools: [],
     workspaceMode: 'shared',
     ...extra,
-  };
+  } as AgentConfig;
 }
 
 /** Runner that returns scripted results and records calls. */

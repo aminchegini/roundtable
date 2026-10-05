@@ -6,9 +6,20 @@ Three layers:
 
 | Layer | Mechanism | Can an agent work around it? |
 | --- | --- | --- |
-| Gate | Claude Agent SDK hooks (`PreToolUse`, `PostToolUse`, `Stop`) on every tool call | No |
+| Gate | Hooks on every tool call (`PreToolUse`, `PostToolUse`, `Stop`) | No |
 | Knowledge | Files in the project (AGENTS.md, architecture map, ADRs) fed into every agent's prompt | Yes, which is why gates exist |
-| Process | Room tools plus runtime state (approval, spec) that gates read | No |
+| Process | Room tools (or text commands) plus runtime state (approval, spec) that gates read | No |
+
+## Enforcement per provider
+
+| | Claude | Copilot | Codex | Gemini | Cursor |
+| --- | --- | --- | --- | --- | --- |
+| PreToolUse denies (shell safety, protected paths, review/spec locks) | ✓ in-process | ✓ in-process | prompt only | prompt only | prompt only |
+| PostToolUse feedback (typecheck/lint/secrets after an edit) | ✓ | — | — | — | — |
+| Stop gates (typecheck, lint, tests, secrets, boundaries, ADR, DoD) | ✓ Stop hook | ✓ after turn | ✓ after turn | ✓ after turn | ✓ after turn |
+| Room tools (`pass_turn`, `approve_plan`, `submit_spec`) | tools | text protocol | text protocol | text protocol | text protocol |
+
+"After turn": when the agent finishes, Roundtable runs the enabled stop checks itself and, on a failure, sends the reason back as a follow-up turn (twice at most, then lets it through with a system message). Files the agent changed are tracked from the vendor's own events. The Guardrails view and each agent's drawer show the level that applies.
 
 ## Catalog
 
