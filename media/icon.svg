@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+  <!-- round table -->
+  <circle cx="12" cy="12.5" r="4.2"/>
+  <!-- three seats -->
+  <circle cx="12" cy="3.6" r="1.9"/>
+  <circle cx="4.3" cy="17" r="1.9"/>
+  <circle cx="19.7" cy="17" r="1.9"/>
+  <!-- speech ticks toward the table -->
+  <path d="M12 6.3v1.6M6.1 16.1l1.6-.9M17.9 16.1l-1.6-.9"/>
+</svg>
