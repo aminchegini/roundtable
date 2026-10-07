@@ -106,11 +106,11 @@ Version 0.3.0, runs from source; not on the Marketplace yet. Claude, Codex and C
 
 Roadmap: out-of-process hook files for Codex / Gemini / Cursor so PreToolUse blocks apply everywhere, Marketplace packaging, agents speaking in parallel, Python and Go guardrail catalogs, CI export of the same gates.
 
-## Costs, quotas and a word of caution
+## Costs, quotas and liability — read this
 
-Agents on a **subscription** (Claude Code login, ChatGPT login, Copilot, Cursor, Gemini OAuth) show *plan* and, where the vendor reports it, how much of the current rate-limit window is left. Agents on an **API key** show an *approximate* dollar figure taken from the vendor's own estimate; the room budget cap applies to that figure only. Nothing Roundtable shows is a bill.
+Agents on a **subscription** (Claude Code login, ChatGPT login, Copilot, Cursor, Gemini OAuth) show *plan* and, where the vendor reports it, how much of the current rate-limit window is left. Agents on an **API key** show an *approximate* dollar figure from the vendor's own estimate; the room budget cap applies to that figure only. **Nothing Roundtable shows is a bill, and no cap is a guarantee.** Multi-agent debates can burn tokens fast.
 
-Roundtable is independent and not affiliated with any vendor. It drives their tools under **your** accounts and **their** terms; usage, charges and anything an agent does in your repository are your responsibility. Read [DISCLAIMER.md](DISCLAIMER.md).
+Roundtable is independent and not affiliated with any vendor. It drives their tools under **your** accounts and **their** terms. **You are responsible for every token, request, charge, quota and overage incurred, and for anything an agent does in your repository. The author is not liable for any of it.** The software comes with **no warranty or guarantee of any kind**. Full text: [DISCLAIMER.md](DISCLAIMER.md).
 
 ## Contributing
 
@@ -118,4 +118,4 @@ Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-[MIT](LICENSE) © 2026 Emin Hikmet
+[MIT](LICENSE) © 2026 Emin Hikmet — see also the [Disclaimer](DISCLAIMER.md). No warranty; use at your own risk.

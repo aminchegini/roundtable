@@ -330,7 +330,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (!context.globalState.get<boolean>('roundtable.disclaimerShown')) {
     void vscode.window
       .showInformationMessage(
-        'Roundtable runs each vendor\'s agent under your own account and terms; usage, charges and anything an agent does are yours. Shown costs are approximate. Provided as is.',
+        'Roundtable drives each vendor\'s agent under your own account and terms. Every token, charge, quota and overage, and anything an agent does, is your responsibility; the author is not liable. Costs shown are estimates. No warranty.',
         'Read disclaimer',
         'Got it',
       )

@@ -471,7 +471,7 @@ export function Help({ providers }: { providers: ProviderView[] }) {
       <section>
         <h3>Disclaimer</h3>
         <p className="hint">
-          Roundtable is an independent project, not affiliated with Anthropic, OpenAI, Google, GitHub or Cursor. It drives each vendor's own tools under <b>your</b> accounts and their terms; usage, charges and anything an agent does are your responsibility. Provided as is, without warranty. {' '}
+          Roundtable is an independent project, not affiliated with Anthropic, OpenAI, Google, GitHub or Cursor. It drives each vendor's own tools under <b>your</b> accounts and their terms. <b>Every token, charge, quota and overage incurred, and anything an agent does, is your responsibility; the author is not liable.</b> Multi-agent debates can burn tokens fast; caps and figures are estimates, not guarantees. Provided as is, with <b>no warranty or guarantee of any kind</b>. {' '}
           <a href="#" onClick={(e) => { e.preventDefault(); post({ type: 'openDoc', doc: '../DISCLAIMER.md' }); }}>Read the full disclaimer</a>.
         </p>
       </section>
