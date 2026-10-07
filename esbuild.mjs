@@ -2,8 +2,9 @@ import * as esbuild from 'esbuild';
 
 const watch = process.argv.includes('--watch');
 
-// Extension host bundle. The Agent SDK is ESM-only and locates files relative
-// to itself, so it stays external and is loaded with a dynamic import().
+// Extension host bundle. The vendor SDKs are ESM-only and locate their bundled
+// CLIs relative to import.meta.url, so they stay external (resolved from
+// node_modules at runtime) and are loaded with dynamic import().
 const host = {
   entryPoints: ['src/extension.ts'],
   outfile: 'dist/extension.js',
@@ -11,7 +12,7 @@ const host = {
   platform: 'node',
   format: 'cjs',
   target: 'node20',
-  external: ['vscode', '@anthropic-ai/claude-agent-sdk'],
+  external: ['vscode', '@anthropic-ai/claude-agent-sdk', '@openai/codex-sdk', '@github/copilot-sdk'],
   sourcemap: true,
 };
 
