@@ -1,4 +1,4 @@
-import type { AgentConfig, GuardrailsFile, GuardrailsView } from '../shared/protocol';
+import type { AgentConfig, GuardrailOverrides, GuardrailsFile, GuardrailsView } from '../shared/protocol';
 import { CATALOG } from './catalog';
 import { describeProfile, detectProject } from './detect';
 import { PRESETS } from './presets';
@@ -19,7 +19,8 @@ export class GuardrailRegistry {
   effective: EffectiveGuardrail[] = [];
   setupPlan: SetupPlan = { actions: [] };
   busy = false;
-  private runtimes = new Set<GuardrailRuntime>();
+  /** Runtimes and the room file each one follows (undefined = workspace file). */
+  private runtimes = new Map<GuardrailRuntime, () => GuardrailsFile | undefined>();
 
   constructor(
     readonly root: string,
@@ -38,10 +39,26 @@ export class GuardrailRegistry {
     this.profile = detectProject(this.root);
     this.effective = resolveGuardrails(this.file, PRESETS, CATALOG, this.profile);
     this.setupPlan = await planSetup(this.effective, this.profile, agents);
-    for (const rt of this.runtimes) {
+    for (const [rt, roomFile] of this.runtimes) {
       rt.setProfile(this.profile);
-      rt.setEffective(this.effective);
+      this.pushEffective(rt, roomFile());
     }
+  }
+
+  /** Effective set for a file (room-specific or the workspace one). */
+  resolve(file: GuardrailsFile, overrides?: GuardrailOverrides): EffectiveGuardrail[] {
+    return resolveGuardrails(file, PRESETS, CATALOG, this.profile, overrides);
+  }
+
+  private pushEffective(rt: GuardrailRuntime, roomFile: GuardrailsFile | undefined): void {
+    const file = roomFile ?? this.file;
+    rt.setEffective(roomFile ? this.resolve(file) : this.effective, (overrides) => this.resolve(file, overrides));
+  }
+
+  /** A room changed its own guardrails file (or went back to inheriting). */
+  roomFileChanged(rt: GuardrailRuntime): void {
+    const roomFile = this.runtimes.get(rt);
+    if (roomFile) this.pushEffective(rt, roomFile());
   }
 
   async setFile(file: GuardrailsFile, agents: AgentConfig[]): Promise<void> {
@@ -59,10 +76,10 @@ export class GuardrailRegistry {
     }
   }
 
-  createRuntime(deps: Pick<RuntimeDeps, 'report' | 'stateChanged'>): GuardrailRuntime {
+  createRuntime(deps: Pick<RuntimeDeps, 'report' | 'stateChanged'>, roomFile: () => GuardrailsFile | undefined = () => undefined): GuardrailRuntime {
     const rt = new GuardrailRuntime({ profile: this.profile, root: this.root, runner: this.runner, ...deps });
-    rt.setEffective(this.effective);
-    this.runtimes.add(rt);
+    this.runtimes.set(rt, roomFile);
+    this.pushEffective(rt, roomFile());
     return rt;
   }
 
@@ -70,15 +87,18 @@ export class GuardrailRegistry {
     this.runtimes.delete(rt);
   }
 
-  view(agents: AgentConfig[]): GuardrailsView {
-    const activeIds = new Set(this.effective.map((g) => g.def.id));
+  /** View of the workspace file, or of a room's own file when given. */
+  view(agents: AgentConfig[], roomFile?: GuardrailsFile): GuardrailsView {
+    const file = roomFile ?? this.file;
+    const effective = roomFile ? this.resolve(roomFile) : this.effective;
+    const activeIds = new Set(effective.map((g) => g.def.id));
     return {
       profile: describeProfile(this.profile),
       hasWorkspace: true,
       presets: PRESETS.map((p) => ({ id: p.id, title: p.title, summary: p.summary, guardrailIds: Object.keys(p.guardrails) })),
-      file: this.file,
+      file,
       entries: CATALOG.map((def) => {
-        const config = previewConfig(this.file, PRESETS, def, this.profile);
+        const config = previewConfig(file, PRESETS, def, this.profile);
         const applies = def.appliesTo(this.profile);
         return {
           id: def.id,

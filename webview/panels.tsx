@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { selectPreset, setGuardrailConfig, toggleGuardrail } from '../src/shared/guardrailsFile';
 import {
+  DEFAULT_LIMITS,
   EFFORTS,
   PERMISSION_MODES,
   WORKSPACE_MODES,
@@ -9,9 +10,11 @@ import {
   type FieldSpec,
   type GuardrailEntry,
   type GuardrailLayer,
+  type GuardrailsFile,
   type GuardrailsView,
   type ProviderView,
 } from '../src/shared/protocol';
+import { AgentGuardrails, Field, LimitsForm } from './settings';
 import { post } from './state';
 
 // ---------------------------------------------------------------- providers
@@ -81,17 +84,29 @@ const LAYERS: Array<{ id: GuardrailLayer; title: string; blurb: string }> = [
   { id: 'process', title: 'Process', blurb: 'How work flows through the room: review, specs, isolation.' },
 ];
 
-export function Guardrails({ view, providers }: { view: GuardrailsView; providers: ProviderView[] }) {
+export function Guardrails({
+  view,
+  providers,
+  onSave,
+  embedded,
+}: {
+  view: GuardrailsView;
+  providers: ProviderView[];
+  /** Where edits go: the workspace file by default, or a room's own file. */
+  onSave?(file: GuardrailsFile): void;
+  /** Rendered inside another panel: no outer scroll container or profile line. */
+  embedded?: boolean;
+}) {
   const presetIds = view.presets.find((p) => p.id === view.file.preset)?.guardrailIds ?? [];
-  const save = (file: GuardrailsView['file']) => post({ type: 'setGuardrails', file });
+  const save = onSave ?? ((file: GuardrailsFile) => post({ type: 'setGuardrails', file }));
   if (!view.hasWorkspace) {
     return <div className="empty">Open a folder to configure guardrails. They live in .roundtable/guardrails.json inside the project.</div>;
   }
   const partial = providers.filter((p) => p.enforcement === 'gates').map((p) => p.title);
   return (
-    <div className="panel">
-      <div className="hint">Detected: {view.profile}</div>
-      {partial.length > 0 && <div className="hint">PreToolUse blocks apply in-process for Claude and Copilot agents; {partial.join(', ')} agents get the same gates checked after each turn instead.</div>}
+    <div className={embedded ? 'panel-embedded' : 'panel'}>
+      {!embedded && <div className="hint">Detected: {view.profile}</div>}
+      {!embedded && partial.length > 0 && <div className="hint">PreToolUse blocks apply in-process for Claude and Copilot agents; {partial.join(', ')} agents get the same gates checked after each turn instead.</div>}
 
       <section>
         <h3>Preset</h3>
@@ -232,7 +247,20 @@ function ConfigForm(props: { fields: FieldSpec[]; config: Record<string, unknown
 
 // -------------------------------------------------------------------- drawer
 
-export function Drawer({ agent, providers, canRemove, onClose }: { agent: AgentView; providers: ProviderView[]; canRemove: boolean; onClose(): void }) {
+export function Drawer({
+  agent,
+  providers,
+  canRemove,
+  roomGuardrails,
+  onClose,
+}: {
+  agent: AgentView;
+  providers: ProviderView[];
+  canRemove: boolean;
+  /** Guardrails as the active room sees them, for the per-agent override list. */
+  roomGuardrails: GuardrailsView | undefined;
+  onClose(): void;
+}) {
   const [draft, setDraft] = useState<AgentConfig>(agent.config);
   const [allowed, setAllowed] = useState(agent.config.allowedTools.join(', '));
   const [disallowed, setDisallowed] = useState(agent.config.disallowedTools.join(', '));
@@ -261,14 +289,12 @@ export function Drawer({ agent, providers, canRemove, onClose }: { agent: AgentV
           Close
         </button>
       </div>
-      <label>
-        Name
+      <Field label="Name" hint="How the agent appears in the room and how you @mention it. No spaces.">
         <input value={draft.name} onChange={(e) => set('name', e.target.value)} />
-      </label>
-      <label>
-        Color
+      </Field>
+      <Field label="Color" hint="Used for the agent's name and dot everywhere.">
         <input type="color" value={draft.color} onChange={(e) => set('color', e.target.value)} />
-      </label>
+      </Field>
       <label>
         Provider
         <select
@@ -297,7 +323,9 @@ export function Drawer({ agent, providers, canRemove, onClose }: { agent: AgentV
             )}
           </span>
         )}
-        {provider && <span className="hint">Guardrails: {provider.enforcement === 'full' ? 'fully enforced' : 'gates checked after each turn'}; cost shown in {provider.costUsd ? 'USD' : 'tokens'}.</span>}
+        <span className="hint">
+          The vendor whose agent runtime answers for this agent, using your login for that vendor. {provider ? `${provider.title}: guardrails ${provider.enforcement === 'full' ? 'fully enforced in-process' : 'checked after each turn'}; usage shown as ${provider.costUsd ? 'approximate USD when on an API key' : 'tokens'}.` : ''}
+        </span>
       </label>
       <label>
         Model
@@ -321,15 +349,15 @@ export function Drawer({ agent, providers, canRemove, onClose }: { agent: AgentV
           <input value={draft.model} placeholder="model id" onChange={(e) => set('model', e.target.value)} />
         )}
         {agent.liveModel && agent.liveModel !== draft.model && <span className="hint">running: {agent.liveModel}</span>}
+        <span className="hint">The vendor's model id. Pick from the list or type one the vendor accepts; changes apply live where the vendor allows.</span>
       </label>
-      <label>
-        Effort
+      <Field label="Effort" hint="How hard the model thinks before answering (reasoning budget). Higher = slower, costlier, more careful. Not every vendor or model honours every level.">
         <select value={draft.effort} onChange={(e) => set('effort', e.target.value as AgentConfig['effort'])}>
           {EFFORTS.map((v) => (
             <option key={v}>{v}</option>
           ))}
         </select>
-      </label>
+      </Field>
       <label>
         Permission mode
         <select value={draft.permissionMode} onChange={(e) => set('permissionMode', e.target.value as AgentConfig['permissionMode'])}>
@@ -337,7 +365,10 @@ export function Drawer({ agent, providers, canRemove, onClose }: { agent: AgentV
             <option key={v}>{v}</option>
           ))}
         </select>
-        {draft.provider !== 'claude' && draft.provider !== 'copilot' && <span className="hint">This provider has no approval prompts; the mode maps to its sandbox / approval policy.</span>}
+        <span className="hint">
+          default: risky tools ask you first (Claude, Copilot). acceptEdits: file edits go through, shell still asks. auto: a classifier decides. plan: read-only planning. dontAsk: deny anything not pre-approved.
+          {draft.provider !== 'claude' && draft.provider !== 'copilot' ? ' This vendor has no prompts; the mode maps to its sandbox / approval policy.' : ''}
+        </span>
       </label>
       <label>
         Workspace
@@ -348,28 +379,36 @@ export function Drawer({ agent, providers, canRemove, onClose }: { agent: AgentV
         </select>
         <span className="hint">shared: edits the open folder · worktree: own git worktree · read-only: no edits or shell</span>
       </label>
-      <label>
-        Role
+      <Field label="Role" hint="Appended to the vendor's system prompt (or sent as the first message for vendors without one). Say what this agent cares about, how it disagrees, what it must not do. Short beats long.">
         <textarea rows={6} value={draft.role} onChange={(e) => set('role', e.target.value)} />
-      </label>
+      </Field>
       <label className="inline">
         <input type="checkbox" checked={!!draft.reviewer} onChange={(e) => set('reviewer', e.target.checked)} /> Reviewer
         <span className="hint">Read-only; with the reviewer-veto guardrail, others cannot edit until this agent approves.</span>
       </label>
-      <label className="inline">
-        <input type="checkbox" checked={!!draft.canEditProtected} onChange={(e) => set('canEditProtected', e.target.checked)} /> May edit protected paths
-      </label>
-      <label className="inline">
-        <input type="checkbox" checked={!!draft.pinned} onChange={(e) => set('pinned', e.target.checked)} /> Pinned
-      </label>
-      <label>
-        Always-allowed tools
+      <Field inline label="May edit protected paths" hint="Exempt from the protected-paths guardrail (lockfiles, env files, CI, migrations). For a trusted release or infra agent.">
+        <input type="checkbox" checked={!!draft.canEditProtected} onChange={(e) => set('canEditProtected', e.target.checked)} />
+      </Field>
+      <Field inline label="Pinned" hint="Shows under Pinned in the sidebar tree.">
+        <input type="checkbox" checked={!!draft.pinned} onChange={(e) => set('pinned', e.target.checked)} />
+      </Field>
+
+      <div className="drawer-section">
+        <span className="title">Limits</span>
+        <span className="hint">Spending and usage guards for this agent in every room. The room has its own; the stricter one wins. When a limit is hit the agent sits out and the room says so.</span>
+        <LimitsForm value={draft.limits ?? DEFAULT_LIMITS} scope="agent" onChange={(limits) => set('limits', limits)} />
+      </div>
+
+      <div className="drawer-section">
+        <span className="title">Guardrails for this agent</span>
+        <AgentGuardrails view={roomGuardrails ?? { profile: '', hasWorkspace: false, presets: [], file: { enabled: {}, disabled: [] }, entries: [], setup: [], busy: false }} value={draft.guardrails} onChange={(g) => set('guardrails', g)} />
+      </div>
+      <Field label="Always-allowed tools" hint="Claude tool rules that never prompt, comma-separated: Read, Grep, Bash(npm test:*). Leave empty to be asked as usual.">
         <input value={allowed} placeholder="e.g. Read, Grep, Bash(npm test:*)" onChange={(e) => setAllowed(e.target.value)} />
-      </label>
-      <label>
-        Disallowed tools
+      </Field>
+      <Field label="Disallowed tools" hint="Tools this agent may never use, comma-separated: WebFetch, Bash. Read-only workspace mode already removes edit and shell tools.">
         <input value={disallowed} placeholder="e.g. WebFetch, Bash" onChange={(e) => setDisallowed(e.target.value)} />
-      </label>
+      </Field>
       <span className="hint">Model, effort and permission mode apply live where the provider allows; other changes restart the agent's sessions on their next turn, keeping history.</span>
       <div className="row">
         <button onClick={save} disabled={!draft.name.trim()}>

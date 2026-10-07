@@ -151,6 +151,12 @@
         "icon": "$(organization)"
       },
       {
+        "command": "roundtable.roomSettings",
+        "title": "Room Settings",
+        "category": "Roundtable",
+        "icon": "$(settings-gear)"
+      },
+      {
         "command": "roundtable.newAgent",
         "title": "New Agent",
         "category": "Roundtable",
@@ -277,6 +283,11 @@
           "group": "inline@1"
         },
         {
+          "command": "roundtable.roomSettings",
+          "when": "view == roundtable.rooms && viewItem =~ /^(group|dm)/",
+          "group": "1_edit@0"
+        },
+        {
           "command": "roundtable.renameRoom",
           "when": "view == roundtable.rooms && viewItem =~ /^(group|dm)/",
           "group": "1_edit@1"
@@ -387,13 +398,7 @@
           "type": "number",
           "default": 6,
           "minimum": 1,
-          "description": "Maximum debate rounds after each user message before agents stop."
-        },
-        "roundtable.budgetUsd": {
-          "type": "number",
-          "default": 2,
-          "minimum": 0,
-          "description": "Room spend cap in USD (estimated, Claude agents only). Debate stops when reached. 0 disables the cap."
+          "description": "Default maximum debate rounds after each user message; a room can override it in Room Settings."
         },
         "roundtable.claudePath": {
           "type": "string",

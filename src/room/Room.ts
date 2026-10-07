@@ -1,12 +1,15 @@
 import {
+  DEFAULT_LIMITS,
   USER_ID,
   type AgentConfig,
   type AgentStatus,
   type AgentView,
+  type BenchReason,
+  type BillingKind,
+  type Limits,
+  type QuotaInfo,
   type RoomMessage,
   type RoomStatus,
-  type BillingKind,
-  type QuotaInfo,
   type StopReason,
   type Tokens,
 } from '../shared/protocol';
@@ -40,8 +43,8 @@ export interface AgentSession {
 
 export interface RoomCaps {
   maxRounds: number;
-  /** 0 disables the cap. */
-  budgetUsd: number;
+  /** Room-level limits; see Limits. */
+  limits: Limits;
 }
 
 export type RoomEvent =
@@ -58,6 +61,10 @@ export interface RoomDeps {
   createSession(config: AgentConfig, roster: AgentConfig[]): AgentSession;
   getCaps(): RoomCaps;
   emit(event: RoomEvent): void;
+  /** What we know about an agent's billing before its session reports it (from provider detection). */
+  billingHint?(config: AgentConfig): BillingKind;
+  /** True when the agent's vendor is known to be unavailable (not installed / signed out). */
+  unavailable?(config: AgentConfig): boolean;
 }
 
 interface Member {
@@ -70,6 +77,8 @@ interface Member {
   tokens: Tokens;
   billing: BillingKind;
   quota?: QuotaInfo[];
+  /** Bench reason already announced for the current user request. */
+  benchAnnounced?: BenchReason;
 }
 
 export interface RoomSnapshot {
@@ -124,14 +133,53 @@ export class Room {
       status: 'idle',
       costUsd,
       tokens,
-      billing,
+      billing: billing === 'unknown' ? (this.deps.billingHint?.(config) ?? 'unknown') : billing,
     };
+  }
+
+  // ---- limits ----
+
+  /** Why this agent may not take a turn right now, if anything. */
+  benchReason(member: Member): BenchReason | undefined {
+    const room = this.deps.getCaps().limits;
+    const own = member.config.limits ?? DEFAULT_LIMITS;
+    if (this.deps.unavailable?.(member.config)) return 'provider-unavailable';
+    const billing = member.billing === 'unknown' ? (this.deps.billingHint?.(member.config) ?? 'unknown') : member.billing;
+    if (billing === 'api') {
+      if (!room.allowApi || !own.allowApi) return 'api-not-allowed';
+      if (own.apiBudgetUsd > 0 && member.costUsd >= own.apiBudgetUsd) return 'api-budget';
+    }
+    if (own.maxTokens > 0 && member.tokens.input + member.tokens.output >= own.maxTokens) return 'tokens';
+    if (own.quotaStopPercent > 0 && (member.quota ?? []).some((q) => q.usedPercent >= own.quotaStopPercent)) return 'quota';
+    return undefined;
+  }
+
+  private announceBench(member: Member, reason: BenchReason): void {
+    if (member.benchAnnounced === reason) return;
+    member.benchAnnounced = reason;
+    const name = member.config.name;
+    const text: Record<BenchReason, string> = {
+      'api-not-allowed': `${name} runs on an API key and API usage is off here. Tick "Allow API-billed agents" in room settings and in ${name}'s settings to let it speak.`,
+      'api-budget': `${name} reached its API budget (≈$${(member.config.limits?.apiBudgetUsd ?? 0).toFixed(2)}) and sits out. Raise it in ${name}'s settings.`,
+      quota: `${name}'s plan usage passed ${member.config.limits?.quotaStopPercent ?? 0}% of a window and sits out until it resets.`,
+      tokens: `${name} reached its token cap (${member.config.limits?.maxTokens ?? 0}) and sits out.`,
+      'provider-unavailable': `${name}'s provider is not available (not installed or signed out); skipping.`,
+    };
+    this.post('system', text[reason] ?? `${name} is sitting out (${reason}).`);
   }
 
   // ---- views ----
 
   get agentViews(): AgentView[] {
-    return this.members.map((m) => ({ config: m.config, status: m.status, costUsd: m.costUsd, tokens: m.tokens, billing: m.billing, quota: m.quota }));
+    return this.members.map((m) => ({
+      config: m.config,
+      status: m.status,
+      costUsd: m.costUsd,
+      tokens: m.tokens,
+      billing: m.billing,
+      quota: m.quota,
+      benched: this.benchReason(m),
+    }));
   }
 
   get transcript(): RoomMessage[] {
@@ -149,7 +197,7 @@ export class Room {
       tokens: this.members.reduce((t, m) => ({ input: t.input + m.tokens.input, output: t.output + m.tokens.output }), { ...NO_TOKENS }),
       billing: this.billing,
       quota: this.worstQuota,
-      budgetUsd: caps.budgetUsd,
+      budgetUsd: caps.limits.allowApi ? caps.limits.apiBudgetUsd : 0,
       stopReason: this.stopReason,
     };
   }
@@ -203,6 +251,7 @@ export class Room {
 
   postUserMessage(text: string): void {
     this.deps.emit({ type: 'user-message' });
+    for (const m of this.members) m.benchAnnounced = undefined;
     const message = this.post(USER_ID, text);
     this.turnsSinceUser = 0;
     this.consecutivePasses = 0;
@@ -325,7 +374,12 @@ export class Room {
     if (this.members.length === 0) return 'all-passed';
     if (this.consecutiveErrors >= this.members.length) return 'all-failed';
     if (this.consecutivePasses >= this.members.length) return 'all-passed';
-    if (caps.budgetUsd > 0 && this.apiCost >= caps.budgetUsd) return 'budget';
+    if (this.members.every((m) => this.benchReason(m))) return 'all-benched';
+    const limits = caps.limits;
+    if (limits.allowApi && limits.apiBudgetUsd > 0 && this.apiCost >= limits.apiBudgetUsd) return 'budget';
+    const tokens = this.status.tokens;
+    if (limits.maxTokens > 0 && tokens.input + tokens.output >= limits.maxTokens) return 'tokens';
+    if (limits.quotaStopPercent > 0 && (this.worstQuota?.usedPercent ?? 0) >= limits.quotaStopPercent) return 'quota';
     if (this.round >= caps.maxRounds) return 'max-rounds';
     return undefined;
   }
@@ -335,7 +389,13 @@ export class Room {
     if (reason === 'max-rounds') {
       this.post('system', `Round cap reached (${caps.maxRounds}). Send a message to continue.`);
     } else if (reason === 'budget') {
-      this.post('system', `API budget cap reached (≈$${caps.budgetUsd.toFixed(2)}). Raise roundtable.budgetUsd or reset the room.`);
+      this.post('system', `Room API budget reached (≈$${caps.limits.apiBudgetUsd.toFixed(2)}). Raise it in room settings or reset the room.`);
+    } else if (reason === 'tokens') {
+      this.post('system', `Room token cap reached (${caps.limits.maxTokens}). Raise it in room settings or reset the room.`);
+    } else if (reason === 'quota') {
+      this.post('system', `Plan usage passed ${caps.limits.quotaStopPercent}% of a window (${this.worstQuota?.agentName ?? 'an agent'}). The room waits until it resets; change the threshold in room settings.`);
+    } else if (reason === 'all-benched') {
+      this.post('system', 'Every agent is sitting out because of a limit or an unavailable provider. Check room and agent settings.');
     } else if (reason === 'all-failed') {
       this.post('system', 'Every agent failed on its last turn. Debate stopped.');
     }
@@ -358,6 +418,13 @@ export class Room {
   private async takeTurn(member: Member): Promise<void> {
     const digest = this.digestFor(member);
     this.turnsSinceUser += 1;
+    const bench = this.benchReason(member);
+    if (bench) {
+      this.announceBench(member, bench);
+      this.consecutivePasses += 1;
+      this.deps.emit({ type: 'agents' });
+      return;
+    }
     if (!digest) {
       // Nothing new since this agent last spoke.
       this.consecutivePasses += 1;

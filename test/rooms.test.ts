@@ -72,7 +72,7 @@ async function openWorkspace(root: string | undefined, state = new MemoryKV()) {
     storageDir: path.join(os.tmpdir(), 'rt-storage'),
     env: async () => ({}),
     claudePath: undefined,
-    caps: () => ({ maxRounds: 3, budgetUsd: 0 }),
+    defaults: () => ({ maxRounds: 3 }),
     log: () => undefined,
     warn: () => undefined,
   });

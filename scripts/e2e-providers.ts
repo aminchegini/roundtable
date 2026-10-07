@@ -40,7 +40,7 @@ const ws = await Workspace.open({
   storageDir: path.join(root, '.storage'),
   env: async () => env,
   claudePath,
-  caps: () => ({ maxRounds: 1, budgetUsd: 1 }),
+  defaults: () => ({ maxRounds: 1 }),
   log: (t) => console.log(`  log: ${t}`),
   warn: (t) => console.log(`  warn: ${t}`),
 });

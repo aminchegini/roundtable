@@ -2,7 +2,7 @@ import type { HookCallback, HookInput } from '@anthropic-ai/claude-agent-sdk';
 import * as path from 'node:path';
 import { textProtocolPrompt } from '../room/textCommands';
 import type { ParsedReply } from '../room/textCommands';
-import type { AgentConfig } from '../shared/protocol';
+import type { AgentConfig, GuardrailOverrides } from '../shared/protocol';
 import type { Runner } from './runner';
 import type { EffectiveGuardrail } from './store';
 import {
@@ -46,6 +46,9 @@ export class GuardrailRuntime {
     spec: { status: 'none', markdown: '', agentId: '', requestId: 0 },
   };
   private effective: EffectiveGuardrail[] = [];
+  /** Resolves the room's set with an agent's overrides applied; set by the registry. */
+  private resolver: ((overrides: GuardrailOverrides) => EffectiveGuardrail[]) | undefined;
+  private perAgent = new Map<string, EffectiveGuardrail[]>();
   private turns = new Map<string, TurnState>();
 
   constructor(private deps: RuntimeDeps) {}
@@ -58,12 +61,27 @@ export class GuardrailRuntime {
     this.deps = { ...this.deps, profile };
   }
 
-  setEffective(list: EffectiveGuardrail[]): void {
+  setEffective(list: EffectiveGuardrail[], resolver?: (overrides: GuardrailOverrides) => EffectiveGuardrail[]): void {
     this.effective = list;
+    this.resolver = resolver;
+    this.perAgent.clear();
   }
 
-  has(id: string): boolean {
-    return this.effective.some((g) => g.def.id === id);
+  /** The room's set adjusted by this agent's own forced-on / forced-off guardrails. */
+  effectiveFor(agent: AgentConfig): EffectiveGuardrail[] {
+    const overrides = agent.guardrails;
+    if (!overrides || !this.resolver || (Object.keys(overrides.enabled).length === 0 && overrides.disabled.length === 0)) return this.effective;
+    const key = `${agent.id}:${JSON.stringify(overrides)}`;
+    let list = this.perAgent.get(key);
+    if (!list) {
+      list = this.resolver(overrides);
+      this.perAgent.set(key, list);
+    }
+    return list;
+  }
+
+  has(id: string, agent?: AgentConfig): boolean {
+    return (agent ? this.effectiveFor(agent) : this.effective).some((g) => g.def.id === id);
   }
 
   // ---- room lifecycle ----
@@ -154,11 +172,12 @@ export class GuardrailRuntime {
     };
     add({ PostToolUse: [{ matcher: MUTATING_TOOLS, hooks: [track] }] });
 
-    for (const { def, config } of this.effective) {
+    const effective = this.effectiveFor(agent);
+    for (const { def, config } of effective) {
       if (def.hooks) add(def.hooks(this.ctxFor(agent, roster, cwd, config)));
     }
 
-    const checks = this.effective.filter((g) => g.def.stopCheck);
+    const checks = effective.filter((g) => g.def.stopCheck);
     if (checks.length > 0) {
       const stop: HookCallback = async (input: HookInput) => {
         if (input.hook_event_name !== 'Stop') return {};
@@ -190,7 +209,7 @@ export class GuardrailRuntime {
 
   async buildPrompt(agent: AgentConfig, roster: AgentConfig[], cwd: string): Promise<string> {
     const parts: string[] = [];
-    for (const { def, config } of this.effective) {
+    for (const { def, config } of this.effectiveFor(agent)) {
       if (!def.prompt) continue;
       const text = await def.prompt(this.ctxFor(agent, roster, cwd, config));
       if (text.trim()) parts.push(`### ${def.title}\n${text.trim()}`);
@@ -200,17 +219,17 @@ export class GuardrailRuntime {
   }
 
   buildTools(agent: AgentConfig, roster: AgentConfig[], cwd: string): ToolSpec[] {
-    return this.effective.flatMap(({ def, config }) => def.tools?.(this.ctxFor(agent, roster, cwd, config)) ?? []);
+    return this.effectiveFor(agent).flatMap(({ def, config }) => def.tools?.(this.ctxFor(agent, roster, cwd, config)) ?? []);
   }
 
   buildDisallowed(agent: AgentConfig, roster: AgentConfig[], cwd: string): string[] {
-    return this.effective.flatMap(({ def, config }) => def.disallowedTools?.(this.ctxFor(agent, roster, cwd, config)) ?? []);
+    return this.effectiveFor(agent).flatMap(({ def, config }) => def.disallowedTools?.(this.ctxFor(agent, roster, cwd, config)) ?? []);
   }
 
   // ---- provider-neutral paths (no in-process SDK hooks) ----
 
   textProtocolPrompt(agent: AgentConfig): string {
-    return textProtocolPrompt({ reviewer: !!agent.reviewer && this.has('reviewer-veto'), specFirst: this.has('spec-first') });
+    return textProtocolPrompt({ reviewer: !!agent.reviewer && this.has('reviewer-veto', agent), specFirst: this.has('spec-first', agent) });
   }
 
   noteEdit(agentId: string, cwd: string, file: string): void {
@@ -235,12 +254,12 @@ export class GuardrailRuntime {
 
   /** Text-protocol equivalents of the approve_plan / submit_spec tools. */
   applyReply(agent: AgentConfig, reply: ParsedReply): void {
-    if (reply.approve && agent.reviewer && this.has('reviewer-veto')) {
+    if (reply.approve && agent.reviewer && this.has('reviewer-veto', agent)) {
       this.room.approvedRequest = this.room.requestId;
       this.deps.report(`${agent.name} approved the plan: ${reply.approve}`);
       this.deps.stateChanged();
     }
-    if (reply.spec && this.has('spec-first')) {
+    if (reply.spec && this.has('spec-first', agent)) {
       this.room.spec = { status: 'pending', markdown: reply.spec, agentId: agent.id, requestId: this.room.requestId };
       this.deps.report(`${agent.name} submitted a spec — waiting for your decision.`);
       this.deps.stateChanged();
@@ -253,7 +272,7 @@ export class GuardrailRuntime {
    */
   async stopGate(agent: AgentConfig, roster: AgentConfig[], cwd: string, lastMessage: string): Promise<string | undefined> {
     const turn = this.turnFor(agent.id);
-    for (const { def, config } of this.effective) {
+    for (const { def, config } of this.effectiveFor(agent)) {
       if (!def.stopCheck) continue;
       let reason: string | undefined;
       try {

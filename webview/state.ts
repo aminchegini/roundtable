@@ -21,7 +21,7 @@ export interface Live {
   activity: string;
 }
 
-export type View = 'room' | 'guardrails' | 'help';
+export type View = 'room' | 'guardrails' | 'help' | 'room-settings';
 
 export interface State {
   loaded: boolean;

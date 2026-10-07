@@ -137,6 +137,25 @@ describe('store', () => {
     expect(resolveGuardrails(file, PRESETS, CATALOG, profile).find((e) => e.def.id === 'adr')!.config.enforce).toBe(true);
   });
 
+  it('applies per-agent overrides on top of a file', () => {
+    const file: GuardrailsFile = { preset: 'solo', enabled: {}, disabled: [] };
+    const ids = (o?: { enabled: Record<string, true | Record<string, unknown>>; disabled: string[] }) => resolveGuardrails(file, PRESETS, CATALOG, profile, o).map((e) => e.def.id);
+    expect(ids()).toEqual(['bash-safety', 'protected-paths', 'secrets-scan']);
+    expect(ids({ enabled: { 'typecheck-gate': true }, disabled: ['bash-safety'] })).toEqual(['protected-paths', 'secrets-scan', 'typecheck-gate']);
+    const configured = resolveGuardrails(file, PRESETS, CATALOG, profile, { enabled: { adr: { enforce: true } }, disabled: [] }).find((e) => e.def.id === 'adr')!;
+    expect(configured.config.enforce).toBe(true);
+  });
+
+  it('runtime resolves a different set per agent', () => {
+    const { rt } = runtimeWith({ preset: 'solo', enabled: {}, disabled: [] });
+    rt.setEffective(resolveGuardrails({ preset: 'solo', enabled: {}, disabled: [] }, PRESETS, CATALOG, profile), (o) => resolveGuardrails({ preset: 'solo', enabled: {}, disabled: [] }, PRESETS, CATALOG, profile, o));
+    const plain = agent('Kit');
+    const exempt = agent('Ada', { guardrails: { enabled: {}, disabled: ['protected-paths'] } });
+    expect(rt.effectiveFor(plain).map((e) => e.def.id)).toContain('protected-paths');
+    expect(rt.effectiveFor(exempt).map((e) => e.def.id)).not.toContain('protected-paths');
+    expect(rt.has('protected-paths', exempt)).toBe(false);
+  });
+
   it('skips guardrails that do not apply to the stack', () => {
     const plain = { ...profile, node: false, typescript: false };
     const ids = resolveGuardrails(selectPreset({ enabled: {}, disabled: [] }, 'factory'), PRESETS, CATALOG, plain).map((e) => e.def.id);

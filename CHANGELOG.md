@@ -7,6 +7,7 @@
 - Disclaimer covering vendor terms, token/cost liability, no warranty; shown on first run and in Help.
 - Codex and Copilot SDKs kept external to the bundle (fixes Codex turns failing in the extension).
 - New logo; README images use absolute URLs.
+- Room settings: rounds, limits (API usage off by default with opt-in and budget, plan-usage stop %, token cap), custom guardrails per room; the same limits and per-rule overrides on each agent; every setting explained inline. Agents that hit a limit sit out instead of stopping the room.
 
 ## 0.3.0 — rooms, direct messages, multi-vendor agents, VS Code surface
 

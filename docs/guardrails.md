@@ -48,6 +48,14 @@ Three layers:
 
 While locked by a process guardrail, agents may still run read-only shell commands (`git status`, `ls`, `grep`, test and typecheck commands); everything else is denied with the reason.
 
+## Scopes: workspace, room, agent
+
+- **Workspace** — `.roundtable/guardrails.json`, shared with the team. The default for every room.
+- **Room** — in ⚙ Room settings, switch to *Custom for this room* to give one room its own preset and toggles (kept in workspace state, not committed). Useful for a "release" room with the factory preset while a "scratch" room stays loose.
+- **Agent** — in the agent drawer, each rule can *inherit*, *force on* or *force off* for that agent only. Forced-on rules use default settings; forced-off exempts the agent (a trusted infra agent allowed to edit CI, for instance).
+
+Effective set for an agent in a room = room file (or workspace file) minus its `disabled`, plus its `enabled`, then the agent's forced-off removed and forced-on added.
+
 ## Presets
 
 | | solo | team | factory |

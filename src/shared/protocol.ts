@@ -66,6 +66,10 @@ export interface AgentConfig {
   /** May edit paths the protected-paths guardrail blocks for everyone else. */
   canEditProtected?: boolean;
   pinned?: boolean;
+  /** Spending/usage limits for this agent in every room. Missing = DEFAULT_LIMITS. */
+  limits?: Limits;
+  /** Guardrails forced on or off for this agent, on top of the room's set. */
+  guardrails?: GuardrailOverrides;
 }
 
 export interface RoomMeta {
@@ -77,6 +81,12 @@ export interface RoomMeta {
   pinned: boolean;
   createdAt: number;
   lastActivity: number;
+  /** Room-level limits. Missing = DEFAULT_LIMITS. */
+  limits?: Limits;
+  /** Rounds after each user message before agents stop; missing = workspace setting. */
+  maxRounds?: number;
+  /** Custom guardrails for this room; missing = inherit the workspace file. */
+  guardrails?: GuardrailsFile;
 }
 
 export type AgentStatus = 'idle' | 'speaking' | 'error';
@@ -107,6 +117,8 @@ export interface AgentView {
   tokens: Tokens;
   billing: BillingKind;
   quota?: QuotaInfo[];
+  /** Set when a limit keeps this agent from taking turns. */
+  benched?: BenchReason;
   /** Model reported by the live session, if it has started. */
   liveModel?: string;
 }
@@ -121,7 +133,7 @@ export interface RoomMessage {
   ts: number;
 }
 
-export type StopReason = 'all-passed' | 'max-rounds' | 'budget' | 'stopped' | 'all-failed';
+export type StopReason = 'all-passed' | 'max-rounds' | 'budget' | 'quota' | 'tokens' | 'stopped' | 'all-failed' | 'all-benched';
 
 export interface RoomStatus {
   running: boolean;
@@ -166,6 +178,32 @@ export interface GuardrailsFile {
   enabled: Record<string, true | Record<string, unknown>>;
   disabled: string[];
 }
+
+/** Per-agent adjustments layered on top of the room's guardrails. */
+export interface GuardrailOverrides {
+  enabled: Record<string, true | Record<string, unknown>>;
+  disabled: string[];
+}
+
+/**
+ * Spending and usage limits. The same shape applies to a room (stops the
+ * debate) and to an agent (benches that agent). Zero means "no limit".
+ */
+export interface Limits {
+  /** API-billed agents may run. Off by default: metered usage must be opted into. */
+  allowApi: boolean;
+  /** Approximate USD cap for API-billed usage; 0 = unlimited. Only meaningful when allowApi. */
+  apiBudgetUsd: number;
+  /** Stop when a subscription agent's fullest quota window reaches this % used; 0 = ignore. */
+  quotaStopPercent: number;
+  /** Total tokens (input + output) across turns; 0 = unlimited. */
+  maxTokens: number;
+}
+
+export const DEFAULT_LIMITS: Limits = { allowApi: false, apiBudgetUsd: 0, quotaStopPercent: 0, maxTokens: 0 };
+
+/** Why an agent is benched in a room right now. */
+export type BenchReason = 'api-not-allowed' | 'api-budget' | 'quota' | 'tokens' | 'provider-unavailable';
 
 export interface GuardrailEntry {
   id: string;
@@ -226,6 +264,12 @@ export interface RoomState {
   room: RoomStatus;
   permissions: PermissionRequest[];
   spec: SpecView | undefined;
+  /** Effective limits and rounds for this room (room override or workspace default). */
+  limits: Limits;
+  maxRounds: number;
+  /** Guardrails as this room sees them (custom file or the inherited workspace file). */
+  guardrails: GuardrailsView;
+  inheritsGuardrails: boolean;
 }
 
 export type HostToWebview =
@@ -241,7 +285,7 @@ export type HostToWebview =
   | { type: 'permissions'; permissions: PermissionRequest[] }
   | { type: 'guardrails'; guardrails: GuardrailsView }
   | { type: 'spec'; spec: SpecView | undefined }
-  | { type: 'navigate'; view: 'room' | 'guardrails' | 'help' };
+  | { type: 'navigate'; view: 'room' | 'guardrails' | 'help' | 'room-settings' };
 
 export type WebviewToHost =
   | { type: 'ready' }
@@ -261,6 +305,7 @@ export type WebviewToHost =
   | { type: 'pinRoom'; id: string; pinned: boolean }
   | { type: 'deleteRoom'; id: string }
   | { type: 'setParticipants'; id: string; agentIds: string[] }
+  | { type: 'updateRoom'; id: string; patch: { limits?: Limits; maxRounds?: number | null; guardrails?: GuardrailsFile | null } }
   | { type: 'pinAgent'; id: string; pinned: boolean }
   | { type: 'openInEditor' }
   | { type: 'refreshProviders' }

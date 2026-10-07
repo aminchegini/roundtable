@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Room, type AgentSession, type RoomCaps, type TurnResult } from '../src/room/Room';
-import type { AgentConfig } from '../src/shared/protocol';
+import { DEFAULT_LIMITS, type AgentConfig } from '../src/shared/protocol';
 
 function config(name: string): AgentConfig {
   return {
@@ -31,7 +31,7 @@ class FakeSession implements AgentSession {
     this.cost += this.costPerTurn;
     let reply = this.replies.shift() ?? { pass: true as const };
     if (typeof reply === 'function') reply = reply(prompt);
-    if (typeof reply === 'string') return { text: reply, passed: false, costUsd: this.cost };
+    if (typeof reply === 'string') return { text: reply, passed: false, costUsd: this.cost, tokens: { input: Math.round(this.cost * 100), output: 0 } };
     if ('error' in reply) return { text: '', passed: false, costUsd: this.cost, error: reply.error };
     return { text: '', passed: true, costUsd: this.cost };
   }
@@ -45,7 +45,7 @@ function setup(scripts: Record<string, Reply[]>, caps: Partial<RoomCaps> = {}) {
   const configs = Object.keys(scripts).map(config);
   const room = new Room(
     {
-      getCaps: () => ({ maxRounds: 6, budgetUsd: 0, ...caps }),
+      getCaps: () => ({ maxRounds: 6, limits: { ...DEFAULT_LIMITS, allowApi: true }, ...caps }),
       emit: () => undefined,
       createSession: (c) => (sessions[c.id] = new FakeSession(scripts[c.name] ?? [])),
     },
@@ -105,7 +105,7 @@ describe('Room', () => {
 
   it('stops at the budget cap', async () => {
     const forever = Array.from({ length: 50 }, (_, i) => `m${i}`);
-    const { room } = setup({ Ada: [...forever], Rex: [...forever] }, { budgetUsd: 0.3, maxRounds: 100 });
+    const { room } = setup({ Ada: [...forever], Rex: [...forever] }, { maxRounds: 100, limits: { ...DEFAULT_LIMITS, allowApi: true, apiBudgetUsd: 0.3 } });
     room.postUserMessage('debate');
     await room.whenIdle();
 
@@ -118,7 +118,7 @@ describe('Room', () => {
     const sessions: Record<string, FakeSession> = {};
     const room = new Room(
       {
-        getCaps: () => ({ maxRounds: 100, budgetUsd: 0.3 }),
+        getCaps: () => ({ maxRounds: 100, limits: { ...DEFAULT_LIMITS, allowApi: true, apiBudgetUsd: 0.3 } }),
         emit: () => undefined,
         createSession: (c) => {
           const s = new FakeSession([...forever]);
@@ -132,7 +132,7 @@ describe('Room', () => {
           return s;
         },
       },
-      [config('Ada'), config('Rex')],
+      [config('Ada'), { ...config('Rex'), limits: { ...DEFAULT_LIMITS, allowApi: true } }],
     );
     room.postUserMessage('go');
     await room.whenIdle();
@@ -144,6 +144,60 @@ describe('Room', () => {
     expect(status.apiCostUsd).toBeCloseTo(0.3);
     expect(status.costUsd).toBeGreaterThan(status.apiCostUsd);
     expect(room.agentViews.map((a) => a.billing)).toEqual(['subscription', 'api']);
+  });
+
+  it('benches API-billed agents unless both room and agent allow it, and stops on room limits', async () => {
+    const make = (roomLimits: Partial<typeof DEFAULT_LIMITS>, agentLimits?: Partial<typeof DEFAULT_LIMITS>) => {
+      const kit = { ...config('Kit'), limits: agentLimits ? { ...DEFAULT_LIMITS, ...agentLimits } : undefined };
+      const room = new Room(
+        {
+          getCaps: () => ({ maxRounds: 10, limits: { ...DEFAULT_LIMITS, ...roomLimits } }),
+          emit: () => undefined,
+          billingHint: (c) => (c.name === 'Kit' ? 'api' : 'subscription'),
+          createSession: (c) => {
+            const s = new FakeSession(Array.from({ length: 20 }, (_, i) => `${c.name}-${i}`));
+            const run = s.runTurn.bind(s);
+            s.runTurn = async (p) => ({ ...(await run(p)), billing: c.name === 'Kit' ? 'api' : 'subscription', quota: c.name === 'Ada' ? [{ window: '5h', usedPercent: 70 }] : undefined });
+            return s;
+          },
+        },
+        [config('Ada'), kit],
+      );
+      return room;
+    };
+
+    // Default: API off → Kit sits out with an explanation, Ada talks.
+    let room = make({});
+    room.postUserMessage('go');
+    await room.whenIdle();
+    expect(room.transcript.some((m) => m.from === 'system' && /Kit runs on an API key and API usage is off/.test(m.text))).toBe(true);
+    expect(room.transcript.some((m) => m.from === 'kit')).toBe(false);
+    expect(room.agentViews.find((a) => a.config.name === 'Kit')!.benched).toBe('api-not-allowed');
+
+    // Room allows but agent does not → still benched.
+    room = make({ allowApi: true });
+    room.postUserMessage('go');
+    await room.whenIdle();
+    expect(room.transcript.some((m) => m.from === 'kit')).toBe(false);
+
+    // Both allow → Kit speaks; agent API budget then benches it.
+    room = make({ allowApi: true }, { allowApi: true, apiBudgetUsd: 0.15 });
+    room.postUserMessage('go');
+    await room.whenIdle();
+    expect(room.transcript.filter((m) => m.from === 'kit').length).toBeGreaterThan(0);
+    expect(room.transcript.some((m) => /Kit reached its API budget/.test(m.text))).toBe(true);
+
+    // Room quota threshold stops the debate once Ada's window passes it.
+    room = make({ quotaStopPercent: 60 });
+    room.postUserMessage('go');
+    await room.whenIdle();
+    expect(room.status.stopReason).toBe('quota');
+
+    // Room token cap (both agents allowed so both contribute tokens).
+    room = make({ maxTokens: 20, allowApi: true }, { allowApi: true });
+    room.postUserMessage('go');
+    await room.whenIdle();
+    expect(room.status.stopReason).toBe('tokens');
   });
 
   it('resets the round counter when the user interjects', async () => {
@@ -181,7 +235,7 @@ describe('Room', () => {
     const sessions: FakeSession[] = [];
     const room = new Room(
       {
-        getCaps: () => ({ maxRounds: 6, budgetUsd: 0 }),
+        getCaps: () => ({ maxRounds: 6, limits: { ...DEFAULT_LIMITS, allowApi: true } }),
         emit: () => undefined,
         createSession: () => {
           const s = new FakeSession(['late reply']);

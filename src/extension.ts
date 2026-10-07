@@ -35,10 +35,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return env;
     },
     claudePath: resolveClaudePath(),
-    caps: () => {
-      const cfg = vscode.workspace.getConfiguration('roundtable');
-      return { maxRounds: cfg.get('maxRounds', 6), budgetUsd: cfg.get('budgetUsd', 2) };
-    },
+    defaults: () => ({ maxRounds: vscode.workspace.getConfiguration('roundtable').get('maxRounds', 6) }),
     log: (text) => log.appendLine(text),
     warn: (text) => void vscode.window.showWarningMessage(`Roundtable: ${text}`),
   });
@@ -308,6 +305,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   register('roundtable.openGuardrails', async () => {
     await showChat();
     ws.navigate('guardrails');
+  });
+  register('roundtable.roomSettings', async (arg) => {
+    const room = await roomFrom(arg, 'Room settings');
+    if (!room) return;
+    ws.rooms.setActive(room.id);
+    await showChat();
+    ws.navigate('room-settings');
   });
   register('roundtable.help', async () => {
     await showChat();

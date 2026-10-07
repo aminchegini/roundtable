@@ -24,7 +24,7 @@ export interface WorkspaceDeps {
   storageDir: string;
   env(): Promise<Record<string, string | undefined>>;
   claudePath: string | undefined;
-  caps(): { maxRounds: number; budgetUsd: number };
+  defaults(): { maxRounds: number };
   log(text: string): void;
   warn(text: string): void;
 }
@@ -42,7 +42,7 @@ export type WorkspaceEvent =
   | { type: 'providers' }
   | { type: 'guardrails' }
   | { type: 'activity'; roomId: string }
-  | { type: 'navigate'; view: 'room' | 'guardrails' | 'help' }
+  | { type: 'navigate'; view: 'room' | 'guardrails' | 'help' | 'room-settings' }
   /** A vendor rejected a turn for lack of a login. */
   | { type: 'login-needed'; provider: ProviderId; agentName: string; reason: string; roomId: string };
 
@@ -106,7 +106,7 @@ export class Workspace {
   }
 
   /** Ask every open chat view to show a section. */
-  navigate(view: 'room' | 'guardrails' | 'help'): void {
+  navigate(view: 'room' | 'guardrails' | 'help' | 'room-settings'): void {
     this.notify({ type: 'navigate', view });
   }
 
@@ -190,6 +190,12 @@ export class Workspace {
     await this.controllers.get(roomId)?.syncParticipants();
   }
 
+  /** Room settings: limits, rounds, custom guardrails. */
+  updateRoom(roomId: string, patch: Parameters<RoomStore['patch']>[1]): void {
+    this.rooms.patch(roomId, patch);
+    this.controllers.get(roomId)?.settingsChanged();
+  }
+
   async deleteRoom(roomId: string): Promise<void> {
     await this.disposeRoom(roomId);
     this.rooms.remove(roomId);
@@ -218,7 +224,7 @@ export class Workspace {
       agents: () => this.agents,
       registry: this.registry,
       providers: this.providers,
-      caps: () => deps.caps(),
+      defaults: () => deps.defaults(),
       storage: {
         getSnapshot: () => deps.state.get<RoomSnapshot>(snapshotKey(roomId)),
         setSnapshot: (s) => deps.state.set(snapshotKey(roomId), s),

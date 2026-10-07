@@ -15,6 +15,8 @@ Open an agent's settings by clicking its chip in the chat header, its row in the
 | May edit protected paths | Exempt from the protected-paths guardrail | Next turn |
 | Pinned | Shows in the Pinned section of the tree | Immediately |
 | Always-allowed / disallowed tools | Claude tool rules (`Read`, `Bash(npm test:*)`, …) | Next turn |
+| Limits | Allow API-billed usage (off by default; the room must allow it too), API budget, stop at plan usage %, token cap — 0 means unlimited. A limit benches this agent in every room | Next turn |
+| Guardrails for this agent | Per rule: inherit the room, force on, or force off (e.g. exempt a trusted release agent from protected paths) | Next turn |
 
 Agents are stored in `.roundtable/agents.json` in the project (or in VS Code global state when no folder is open), so a team can commit a shared cast.
 

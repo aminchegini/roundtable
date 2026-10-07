@@ -35,7 +35,19 @@ A room's participants are any subset of the workspace's agents. Adding an agent 
 
 Rooms, transcripts (last 300 messages) and session ids are kept in VS Code workspace state. Reopening the window restores them and resumes the vendor sessions.
 
-## Caps
+## Room settings (⚙ in the header, or **Roundtable: Room Settings**)
 
-- `roundtable.maxRounds` — rounds after your last message (default 6).
-- `roundtable.budgetUsd` — estimated USD across Claude agents in the room (default 2; 0 disables). Token-only vendors are not counted; the header shows their token total instead.
+Every field has its explanation next to it in the UI. In short:
+
+| Setting | Meaning | Default |
+| --- | --- | --- |
+| Rounds per message | How many times the table goes round after each message before agents stop | workspace `roundtable.maxRounds` (6) |
+| Allow API-billed agents | Agents on an API key (metered per token) may run in this room. **Off by default**; the agent's own settings must allow it too | off |
+| API budget | Approximate USD across API-billed agents; the debate stops when reached; 0 = unlimited | 0 |
+| Stop at plan usage % | When a subscription agent's fullest vendor-reported window (Claude 5h / 7d) reaches this %, the room pauses until it resets; 0 = ignore | 0 |
+| Token cap | Total tokens across agents and turns; 0 = unlimited | 0 |
+| Guardrails | Inherit the workspace file or keep a custom set for this room | inherit |
+
+Agents have the same limits in their own settings; the stricter of room and agent wins. An agent that hits a limit **sits out** (⏸ on its chip, explanation in the transcript) rather than stopping the whole room; room-level limits stop the debate.
+
+All figures are vendor estimates — see [DISCLAIMER.md](../DISCLAIMER.md).
