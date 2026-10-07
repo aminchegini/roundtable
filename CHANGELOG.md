@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Sign-in prompts for every vendor with a one-click terminal login and retry.
+- Billing display: subscription plan with vendor-reported quota windows, or approximate API cost; budget cap counts API spend only.
+- Disclaimer covering vendor terms, token/cost liability, no warranty; shown on first run and in Help.
+- Codex and Copilot SDKs kept external to the bundle (fixes Codex turns failing in the extension).
+- New logo; README images use absolute URLs.
+
 ## 0.3.0 — rooms, direct messages, multi-vendor agents, VS Code surface
 
 - Rooms and DMs: create, rename, pin, delete, edit participants; one session per (room, agent); rooms run independently.
