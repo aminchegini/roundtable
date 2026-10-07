@@ -125,9 +125,16 @@ export class RoomController {
             case 'user-message':
               this.runtime?.onUserMessage();
               break;
-            case 'turn-start':
+            case 'turn-start': {
               this.runtime?.onTurnStart(event.agentId);
+              // Known signed-out vendor: prompt before the turn burns a failure.
+              const agent = this.participants().find((a) => a.id === event.agentId);
+              const status = agent && this.deps.providers.statusOf(agent.provider);
+              if (agent && status && (!status.installed || status.authenticated === false)) {
+                this.deps.loginNeeded(agent, status.detail);
+              }
               break;
+            }
             case 'turn-done': {
               const agent = this.participants().find((a) => a.id === event.agentId);
               if (agent) this.runtime?.applyReply(agent, event.reply);

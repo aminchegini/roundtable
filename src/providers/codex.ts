@@ -41,9 +41,18 @@ export class CodexAgentSession implements AgentSession {
     this.abort = new AbortController();
     let text = '';
     let error: string | undefined;
+    // `error` events also fire while Codex retries ("Reconnecting… 3/5"); only a
+    // failed or missing turn.completed makes the turn an error.
+    let lastError: string | undefined;
+    let completed = false;
     try {
       const { events } = await thread.runStreamed(input, { signal: this.abort.signal });
-      for await (const event of events) text = this.handle(event, text, cwd, (e) => (error = e));
+      for await (const event of events) {
+        if (event.type === 'turn.completed') completed = true;
+        if (event.type === 'turn.failed') error = event.error.message;
+        text = this.handle(event, text, cwd, (e) => (lastError = e));
+      }
+      if (!completed && !error) error = lastError ?? 'Codex ended the turn without completing it';
     } catch (err) {
       error = this.abort.signal.aborted ? 'interrupted' : errorMessage(err);
     } finally {
@@ -53,7 +62,7 @@ export class CodexAgentSession implements AgentSession {
       this.threadId = thread.id;
       this.ctx.onEvent({ type: 'started', sessionId: thread.id, model: this.config.model, apiKeySource: 'codex login' });
     }
-    return { text, passed: false, costUsd: 0, tokens: this.tokens, error };
+    return { text, passed: false, costUsd: 0, tokens: this.tokens, billing: this.ctx.env.CODEX_API_KEY ? 'api' : 'subscription', error };
   }
 
   private handle(event: ThreadEvent, text: string, cwd: string | undefined, fail: (e: string) => void): string {
@@ -83,10 +92,10 @@ export class CodexAgentSession implements AgentSession {
         this.tokens = addTokens(this.tokens, event.usage.input_tokens, event.usage.output_tokens + event.usage.reasoning_output_tokens);
         return text;
       case 'turn.failed':
-        fail(event.error.message);
         return text;
       case 'error':
         fail(event.message);
+        this.ctx.onEvent({ type: 'activity', text: event.message.slice(0, 160) });
         return text;
       default:
         return text;

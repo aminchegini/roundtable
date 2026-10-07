@@ -86,11 +86,27 @@ export interface Tokens {
   output: number;
 }
 
+/** How a vendor bills this agent's session: a plan (subscription) or metered API usage. */
+export type BillingKind = 'subscription' | 'api' | 'unknown';
+
+/** One rate-limit window the vendor reported (e.g. Claude's 5-hour / 7-day windows). */
+export interface QuotaInfo {
+  /** Short window name: "5h", "7d", "7d Opus". */
+  window: string;
+  /** 0–100, how much of the window is used. */
+  usedPercent: number;
+  /** Epoch ms when the window resets, when known. */
+  resetsAt?: number;
+}
+
 export interface AgentView {
   config: AgentConfig;
   status: AgentStatus;
+  /** Vendor's own estimate (Claude only); meaningful for API billing, informational otherwise. */
   costUsd: number;
   tokens: Tokens;
+  billing: BillingKind;
+  quota?: QuotaInfo[];
   /** Model reported by the live session, if it has started. */
   liveModel?: string;
 }
@@ -112,8 +128,14 @@ export interface RoomStatus {
   round: number;
   maxRounds: number;
   costUsd: number;
+  /** Estimated USD across agents billed by API key; the budget cap applies to this. */
+  apiCostUsd: number;
   /** Total tokens across agents, for providers that report no USD. */
   tokens: Tokens;
+  /** Billing picture of the room: every agent on a plan, every agent metered, or a mix. */
+  billing: 'subscription' | 'api' | 'mixed' | 'unknown';
+  /** The most-used quota window among subscription agents, if any vendor reports one. */
+  quota?: QuotaInfo & { agentName: string };
   budgetUsd: number;
   stopReason?: StopReason;
   /** Active process locks, from guardrails. */

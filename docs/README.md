@@ -21,6 +21,7 @@ Start with **[Getting started](getting-started.md)** — install, sign in to you
 | [Development](development.md) | Repository layout, data flow, tests, releasing |
 | [Changelog](../CHANGELOG.md) | What changed in each version |
 | [Contributing](../CONTRIBUTING.md) | How to help |
+| [Disclaimer](../DISCLAIMER.md) | Not affiliated with any vendor; your accounts, your terms; costs are estimates; no warranty |
 
 ## Keyboard and commands
 

@@ -113,6 +113,39 @@ describe('Room', () => {
     expect(room.status.costUsd).toBeCloseTo(0.3);
   });
 
+  it('tracks billing per agent and caps only API spend', async () => {
+    const forever = Array.from({ length: 50 }, (_, i) => `m${i}`);
+    const sessions: Record<string, FakeSession> = {};
+    const room = new Room(
+      {
+        getCaps: () => ({ maxRounds: 100, budgetUsd: 0.3 }),
+        emit: () => undefined,
+        createSession: (c) => {
+          const s = new FakeSession([...forever]);
+          const run = s.runTurn.bind(s);
+          s.runTurn = async (p) => ({
+            ...(await run(p)),
+            billing: c.name === 'Ada' ? 'subscription' : 'api',
+            quota: c.name === 'Ada' ? [{ window: '5h', usedPercent: 40 }] : undefined,
+          });
+          sessions[c.id] = s;
+          return s;
+        },
+      },
+      [config('Ada'), config('Rex')],
+    );
+    room.postUserMessage('go');
+    await room.whenIdle();
+    const status = room.status;
+    expect(status.stopReason).toBe('budget');
+    expect(status.billing).toBe('mixed');
+    expect(status.quota).toEqual({ window: '5h', usedPercent: 40, agentName: 'Ada' });
+    // Ada's subscription spend is excluded from the cap; Rex alone hit $0.30.
+    expect(status.apiCostUsd).toBeCloseTo(0.3);
+    expect(status.costUsd).toBeGreaterThan(status.apiCostUsd);
+    expect(room.agentViews.map((a) => a.billing)).toEqual(['subscription', 'api']);
+  });
+
   it('resets the round counter when the user interjects', async () => {
     const forever = Array.from({ length: 50 }, (_, i) => `m${i}`);
     const { room, speakers } = setup({ Ada: [...forever], Rex: [...forever] }, { maxRounds: 1 });

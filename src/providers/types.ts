@@ -41,7 +41,7 @@ export interface SessionContext {
 
 /** True when a turn error means the vendor wants the user to sign in (again). */
 export function isAuthError(text: string): boolean {
-  return /OAuth session expired|Failed to authenticate|not (logged|signed) in|Invalid authentication|authentication (failed|required)|401|unauthori[sz]ed|login required|please (run|use) .*login|no (stored )?credentials|API key (is )?(missing|invalid)/i.test(text);
+  return /OAuth session expired|Failed to authenticate|not (logged|signed) in|Invalid authentication|authentication (failed|required)|\b401\b|unauthori[sz]ed|login required|please (run|use) .*login|no (stored )?credentials|API key (is )?(missing|invalid)|(token|session|credential)s? (has |have |is |are )?(expired|invalid|revoked)|missing bearer/i.test(text);
 }
 
 export interface ProviderStatus {

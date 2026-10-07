@@ -37,7 +37,7 @@ export interface State {
   live: Record<string, Live>;
 }
 
-export const EMPTY_STATUS: RoomStatus = { running: false, round: 0, maxRounds: 0, costUsd: 0, tokens: { input: 0, output: 0 }, budgetUsd: 0 };
+export const EMPTY_STATUS: RoomStatus = { running: false, round: 0, maxRounds: 0, costUsd: 0, apiCostUsd: 0, billing: 'unknown', tokens: { input: 0, output: 0 }, budgetUsd: 0 };
 
 export const initial: State = {
   loaded: false,

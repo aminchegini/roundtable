@@ -134,11 +134,7 @@ function Header(props: {
             <span className="meter" title="Debate rounds since your last message">
               {Math.min(status.round + (status.running ? 1 : 0), status.maxRounds)}/{status.maxRounds}
             </span>
-            <span className="meter" title={`Estimated spend${hasTokensOnly ? '; token-only providers are not in the USD figure' : ''}`}>
-              ${status.costUsd.toFixed(2)}
-              {status.budgetUsd > 0 ? `/${status.budgetUsd.toFixed(0)}` : ''}
-              {hasTokensOnly && status.tokens.input + status.tokens.output > 0 ? ` · ${fmtTokens(status.tokens.input + status.tokens.output)} tok` : ''}
-            </span>
+            <BillingMeter status={status} tokensOnly={hasTokensOnly} />
             {status.locks?.spec && <span className="badge">{status.locks.spec}</span>}
             {status.locks?.review && <span className="badge">{status.locks.review}</span>}
           </>
@@ -210,6 +206,44 @@ function Header(props: {
         </div>
       )}
     </header>
+  );
+}
+
+/**
+ * Subscription agents: say so and show the fullest quota window. API agents:
+ * an approximate dollar figure against the budget. Never a bare price.
+ */
+function BillingMeter({ status, tokensOnly }: { status: RoomStatus; tokensOnly: boolean }) {
+  const tokens = status.tokens.input + status.tokens.output;
+  const tok = tokens > 0 ? `${fmtTokens(tokens)} tok` : '';
+  const api = `API ≈ $${status.apiCostUsd.toFixed(2)}${status.budgetUsd > 0 ? ` / ${status.budgetUsd.toFixed(0)}` : ''}`;
+  if (status.billing === 'subscription') {
+    const q = status.quota;
+    return (
+      <span className="meter" title={q ? `${q.agentName}'s ${q.window} window is ${q.usedPercent}% used${q.resetsAt ? `, resets ${new Date(q.resetsAt).toLocaleString()}` : ''}. Vendor-reported, approximate.` : 'All agents run on subscriptions; no per-call charge. Usage counts against each plan.'}>
+        Subscription{q ? ` · ${Math.max(0, 100 - q.usedPercent)}% left (${q.window})` : tok ? ` · ${tok}` : ''}
+      </span>
+    );
+  }
+  if (status.billing === 'api') {
+    return (
+      <span className="meter" title="Agents run on API keys. Dollar figure is the vendor's estimate, approximate; the cap applies to it.">
+        {api} <span className="hint">(approx)</span>
+      </span>
+    );
+  }
+  if (status.billing === 'mixed') {
+    const q = status.quota;
+    return (
+      <span className="meter" title="Some agents on subscriptions, some on API keys. Dollar figure covers API agents only and is approximate.">
+        {api} <span className="hint">(approx)</span> · subscription{q ? ` ${Math.max(0, 100 - q.usedPercent)}% left (${q.window})` : ''}
+      </span>
+    );
+  }
+  return (
+    <span className="meter" title="Billing is known after the first turn.">
+      {tok || (tokensOnly ? '—' : 'billing: pending')}
+    </span>
   );
 }
 
@@ -312,6 +346,17 @@ function ParticipantsMenu({ state, room, onClose }: { state: State; room: RoomMe
   );
 }
 
+/** One agent's billing line: plan + fullest quota window, or approximate API dollars. */
+function agentBilling(a: AgentView): string {
+  const tok = (a.tokens?.input ?? 0) + (a.tokens?.output ?? 0);
+  if (a.billing === 'subscription') {
+    const q = [...(a.quota ?? [])].sort((x, y) => y.usedPercent - x.usedPercent)[0];
+    return q ? `plan · ${Math.max(0, 100 - q.usedPercent)}% left (${q.window})` : tok > 0 ? `plan · ${fmtTokens(tok)} tok` : 'plan';
+  }
+  if (a.billing === 'api') return `API ≈ $${a.costUsd.toFixed(2)}`;
+  return tok > 0 ? `${fmtTokens(tok)} tok` : '—';
+}
+
 // -------------------------------------------------------------------- roster
 
 function Roster(props: { agents: AgentView[]; state: State; selected: string | undefined; onSelect(id: string | undefined): void }) {
@@ -334,7 +379,7 @@ function Roster(props: { agents: AgentView[]; state: State; selected: string | u
                   <ProviderBadge provider={provider} />
                 </span>
                 <span className="agent-meta">
-                  {a.status === 'speaking' ? 'speaking…' : a.status === 'error' ? 'error' : provider?.costUsd ? `$${a.costUsd.toFixed(2)}` : `${fmtTokens((a.tokens?.input ?? 0) + (a.tokens?.output ?? 0))} tok`} · {a.config.effort}
+                  {a.status === 'speaking' ? 'speaking…' : a.status === 'error' ? 'error' : agentBilling(a)} · {a.config.effort}
                 </span>
               </span>
             </button>

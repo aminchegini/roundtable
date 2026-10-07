@@ -326,6 +326,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     void vscode.window.showInformationMessage(`Roundtable: API key ${key ? 'stored' : 'removed'}. Reload the window to apply.`);
   });
 
+  // One-time notice: agents act under the user's own vendor accounts.
+  if (!context.globalState.get<boolean>('roundtable.disclaimerShown')) {
+    void vscode.window
+      .showInformationMessage(
+        'Roundtable runs each vendor\'s agent under your own account and terms; usage, charges and anything an agent does are yours. Shown costs are approximate. Provided as is.',
+        'Read disclaimer',
+        'Got it',
+      )
+      .then((choice) => {
+        void context.globalState.update('roundtable.disclaimerShown', true);
+        if (choice === 'Read disclaimer') openDoc(context, '../DISCLAIMER.md');
+      });
+  }
+
   log.appendLine(`Roundtable ready: ${ws.agents.length} agents, ${ws.rooms.list().length} rooms, providers: ${PROVIDERS.map((p) => p.id).join(', ')}`);
 }
 
@@ -359,7 +373,9 @@ function openEditorPanel(context: vscode.ExtensionContext, ws: Workspace): void 
 }
 
 function openDoc(context: vscode.ExtensionContext, doc: string): void {
-  const uri = vscode.Uri.joinPath(context.extensionUri, 'docs', doc.replace(/[^a-z0-9/_.-]/gi, ''));
+  // Only docs/*.md and the root DISCLAIMER.md are reachable from the webview.
+  const safe = doc.replace(/[^a-z0-9/_.-]/gi, '');
+  const uri = safe === '../DISCLAIMER.md' ? vscode.Uri.joinPath(context.extensionUri, 'DISCLAIMER.md') : vscode.Uri.joinPath(context.extensionUri, 'docs', safe.replace(/\.\./g, ''));
   void vscode.commands.executeCommand('markdown.showPreview', uri);
 }
 

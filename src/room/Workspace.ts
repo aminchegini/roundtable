@@ -126,7 +126,7 @@ export class Workspace {
   }
 
   agentViews(): AgentView[] {
-    return this.agents.map((config) => ({ config, status: 'idle', costUsd: 0, tokens: { input: 0, output: 0 } }));
+    return this.agents.map((config) => ({ config, status: 'idle', costUsd: 0, tokens: { input: 0, output: 0 }, billing: 'unknown' }));
   }
 
   async addAgent(provider: ProviderId = 'claude', model?: string): Promise<AgentConfig> {
@@ -242,6 +242,7 @@ export class Workspace {
         if (Date.now() - last < 60_000) return;
         this.lastLoginPrompt.set(agent.provider, Date.now());
         this.notify({ type: 'login-needed', provider: agent.provider, agentName: agent.name, reason, roomId });
+        void this.providers.refresh();
       },
     });
     this.controllers.set(roomId, controller);

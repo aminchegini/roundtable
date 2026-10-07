@@ -6,7 +6,7 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { AgentConfig } from '../shared/protocol';
+import type { AgentConfig, BillingKind, QuotaInfo } from '../shared/protocol';
 import type { AgentSession, TurnResult } from './Room';
 
 type Sdk = typeof import('@anthropic-ai/claude-agent-sdk');
@@ -14,6 +14,15 @@ type Sdk = typeof import('@anthropic-ai/claude-agent-sdk');
 import type { SessionContext, SessionEvent, SessionGuardrails } from '../providers/types';
 
 export type { SessionContext, SessionEvent, SessionGuardrails };
+
+const QUOTA_WINDOWS: Record<string, string> = {
+  five_hour: '5h',
+  seven_day: '7d',
+  seven_day_opus: '7d Opus',
+  seven_day_sonnet: '7d Sonnet',
+  seven_day_overage_included: '7d incl. overage',
+  overage: 'overage',
+};
 
 const ROOM_SERVER = 'room';
 const PASS_TOOL = `mcp__${ROOM_SERVER}__pass_turn`;
@@ -90,6 +99,8 @@ export class SdkAgentSession implements AgentSession {
   private sessionId: string | undefined;
   private lastCost = 0;
   private tokens = { input: 0, output: 0 };
+  private billing: BillingKind = 'unknown';
+  private quota = new Map<string, QuotaInfo>();
   private partial = '';
   private disposed = false;
   /** A config change that needs a restart arrived mid-turn. */
@@ -291,9 +302,20 @@ export class SdkAgentSession implements AgentSession {
       case 'system':
         if (m.subtype === 'init') {
           this.sessionId = m.session_id;
+          // 'none' means no API key: the claude.ai OAuth login (a subscription) is in use.
+          this.billing = m.apiKeySource === 'none' ? 'subscription' : 'api';
           this.ctx.onEvent({ type: 'started', sessionId: m.session_id, model: m.model, apiKeySource: m.apiKeySource });
         }
         break;
+      case 'rate_limit_event': {
+        const info = m.rate_limit_info;
+        if (typeof info.utilization !== 'number') break;
+        const used = info.utilization <= 1 ? info.utilization * 100 : info.utilization;
+        const resetsAt = info.resetsAt ? (info.resetsAt > 1e12 ? info.resetsAt : info.resetsAt * 1000) : undefined;
+        const window = QUOTA_WINDOWS[info.rateLimitType ?? ''] ?? info.rateLimitType ?? 'window';
+        this.quota.set(window, { window, usedPercent: Math.round(used), resetsAt });
+        break;
+      }
       case 'stream_event': {
         if (m.parent_tool_use_id !== null) break;
         const event = m.event;
@@ -339,6 +361,8 @@ export class SdkAgentSession implements AgentSession {
       passed: pending.passed,
       costUsd: this.lastCost,
       tokens: this.tokens,
+      billing: this.billing,
+      quota: this.quota.size > 0 ? [...this.quota.values()] : undefined,
       error: outcome.error,
     });
     if (this.restartAfterTurn) {

@@ -98,7 +98,7 @@ export class GeminiAgentSession implements AgentSession {
     this.abort = undefined;
     if (result.aborted) acc.error = 'interrupted';
     else if (result.code !== 0 && !acc.error) acc.error = result.stderr.split('\n').slice(-3).join(' ') || `gemini exited with ${result.code}`;
-    return { text: acc.text, passed: false, costUsd: 0, tokens: this.tokens, error: acc.error };
+    return { text: acc.text, passed: false, costUsd: 0, tokens: this.tokens, billing: this.ctx.env.GEMINI_API_KEY || this.ctx.env.GOOGLE_API_KEY ? 'api' : 'subscription', error: acc.error };
   }
 
   async interrupt(): Promise<void> {
