@@ -7,7 +7,7 @@ Roundtable puts several AI coding agents in one room inside VS Code. They answer
 Until it is on the Marketplace, run it from source:
 
 ```bash
-git clone <your-fork> roundtable
+git clone https://github.com/aminchegini/roundtable
 cd roundtable
 npm install
 npm run build
