@@ -18,8 +18,12 @@ export function setVendorRoot(dir: string): void {
 }
 
 export function vendorRoot(): string {
-  // Default: the directory that holds dist/ — the extension folder or the repo.
-  return root ?? path.resolve(__dirname, '..');
+  if (root) return root;
+  // Default: the nearest ancestor of this file that holds a package.json — the
+  // extension folder (dist/extension.js) or the repo (src/providers/*.ts under tests).
+  let dir = __dirname;
+  while (!fs.existsSync(path.join(dir, 'package.json')) && path.dirname(dir) !== dir) dir = path.dirname(dir);
+  return dir;
 }
 
 export function vendorBundlePath(name: VendorName): string {

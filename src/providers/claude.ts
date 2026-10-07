@@ -10,29 +10,40 @@ type Sdk = typeof import('@anthropic-ai/claude-agent-sdk');
 
 const loadSdk = () => loadVendor<Sdk>('claude');
 
-/** Wraps a lazily loaded SDK session so the room can create sessions synchronously. */
+/**
+ * Defers both the vendor bundle import and the SDK session until the first
+ * turn, so creating an agent costs nothing and never throws (the bundle may be
+ * absent in unit tests or a broken install; the error then surfaces as a turn
+ * failure the room can show).
+ */
 class LazyClaudeSession {
-  private inner: Promise<SdkAgentSession>;
-  constructor(...args: ConstructorParameters<typeof SdkAgentSession> extends [infer A, infer R, infer C, unknown] ? [A, R, C] : never) {
-    this.inner = loadSdk().then((sdk) => new SdkAgentSession(args[0], args[1], args[2], sdk));
+  private inner: Promise<SdkAgentSession> | undefined;
+  constructor(
+    private readonly agent: Parameters<typeof SdkAgentSession.prototype.applyConfig>[0],
+    private readonly roster: Parameters<typeof SdkAgentSession.prototype.applyConfig>[1],
+    private readonly ctx: ConstructorParameters<typeof SdkAgentSession>[2],
+  ) {}
+  private session(): Promise<SdkAgentSession> {
+    this.inner ??= loadSdk().then((sdk) => new SdkAgentSession(this.agent, this.roster, this.ctx, sdk));
+    return this.inner;
   }
   runTurn(prompt: string) {
-    return this.inner.then((s) => s.runTurn(prompt));
+    return this.session().then((s) => s.runTurn(prompt));
   }
   interrupt() {
-    return this.inner.then((s) => s.interrupt());
+    return this.inner ? this.inner.then((s) => s.interrupt()) : Promise.resolve();
   }
   applyConfig(...a: Parameters<SdkAgentSession['applyConfig']>) {
-    return this.inner.then((s) => s.applyConfig(...a));
+    return this.inner ? this.inner.then((s) => s.applyConfig(...a)) : Promise.resolve();
   }
   restart() {
-    void this.inner.then((s) => s.restart());
+    void this.inner?.then((s) => s.restart());
   }
   forget() {
-    void this.inner.then((s) => s.forget());
+    void this.inner?.then((s) => s.forget());
   }
   dispose() {
-    void this.inner.then((s) => s.dispose());
+    void this.inner?.then((s) => s.dispose());
   }
 }
 

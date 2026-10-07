@@ -17,8 +17,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run check:fixtures
-      - run: npm test
       - run: npm run build
+      - run: npm test
 
   package:
     # Builds the real .vsix, checks its file list against package-manifest.txt,
