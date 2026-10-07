@@ -55,16 +55,17 @@ export function ProviderCards({ providers }: { providers: ProviderView[] }) {
             </div>
             <div className="hint">{p.detail}</div>
             {!ok && p.setupHint && <div className="hint setup">{p.setupHint}</div>}
-            {!ok && p.installed && (
+            {!ok && (
               <div className="row">
-                <button className="small" onClick={() => post({ type: 'login', provider: p.id })}>
-                  Sign in
+                <button className="small" onClick={() => post({ type: p.installed ? 'login' : 'install', provider: p.id })}>
+                  {p.installed ? 'Sign in' : 'Install'}
                 </button>
                 <span className="hint">
-                  opens a terminal running <code>{p.loginCommand}</code>
+                  opens a terminal running <code>{p.installed ? p.loginCommand : p.installCommand}</code>
                 </span>
               </div>
             )}
+            {ok && p.cliPath && <div className="hint">runs {p.cliPath}</div>}
             <div className="hint">
               Guardrails: {p.enforcement === 'full' ? 'full (in-process hooks)' : 'gates after each turn'} · cost: {p.costUsd ? 'USD' : 'tokens'}
               {p.experimental ? ' · experimental' : ''}
@@ -332,11 +333,9 @@ export function Drawer({
         {provider && !available(provider) && (
           <span className="warn-text">
             ⚠ {provider.detail}. {provider.setupHint}{' '}
-            {provider.installed && (
-              <button className="small" onClick={() => post({ type: 'login', provider: provider.id })}>
-                Sign in
-              </button>
-            )}
+            <button className="small" onClick={() => post({ type: provider.installed ? 'login' : 'install', provider: provider.id })}>
+              {provider.installed ? 'Sign in' : 'Install'}
+            </button>
           </span>
         )}
         <span className="hint">

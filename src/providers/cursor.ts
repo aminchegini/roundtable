@@ -1,6 +1,7 @@
 import type { AgentSession, TurnResult } from '../room/Room';
 import type { AgentConfig, InteractionMode, ModelOption } from '../shared/protocol';
-import { WRITE_TOOL, buildFullPrompt, currentMode, editedPathsFrom, findBin, primedInput, spawnJsonl } from './shared';
+import { WRITE_TOOL, buildFullPrompt, currentMode, editedPathsFrom, primedInput, spawnJsonl } from './shared';
+import { findCli } from './cli';
 import type { Provider, SessionContext } from './types';
 import { execFile } from 'node:child_process';
 
@@ -63,7 +64,7 @@ export class CursorAgentSession implements AgentSession {
 
   async runTurn(digest: string): Promise<TurnResult> {
     if (this.disposed) throw new Error('session disposed');
-    const bin = findBin('agent', 'cursor-agent');
+    const bin = this.ctx.cliPath ?? findCli({ names: ['agent', 'cursor-agent'] });
     if (!bin) return { text: '', passed: false, costUsd: 0, error: 'Cursor agent CLI not installed' };
     const cwd = await this.ctx.resolveCwd(this.config);
     const input = this.primed ? digest : primedInput(await buildFullPrompt(this.config, this.roster, cwd, this.ctx), digest);
@@ -150,21 +151,23 @@ export const cursorProvider: Provider = {
   costUsd: false,
   experimental: true,
   loginCommand: 'agent login',
+  installCommand: 'curl https://cursor.com/install -fsSL | bash',
   defaultModel: 'sonnet-4.5',
   staticModels: [
     { id: 'sonnet-4.5', label: 'sonnet-4.5' },
     { id: 'gpt-5', label: 'gpt-5' },
     { id: 'auto', label: 'auto' },
   ],
-  async detect(env) {
-    const bin = findBin('agent', 'cursor-agent');
+  async detect(env, configuredPath) {
+    const bin = findCli({ names: ['agent', 'cursor-agent'], configured: configuredPath });
     if (!bin) {
       return { installed: false, authenticated: false, detail: 'Cursor agent CLI not installed', setupHint: 'Install with `curl https://cursor.com/install -fsSL | bash`, then run `agent login`.' };
     }
-    if (env.CURSOR_API_KEY) return { installed: true, authenticated: true, detail: 'API key from environment', setupHint: '' };
+    if (env.CURSOR_API_KEY) return { installed: true, cliPath: bin, authenticated: true, detail: 'API key from environment', setupHint: '' };
     const { ok, models } = await listModels(bin);
     return {
       installed: true,
+      cliPath: bin,
       authenticated: ok,
       detail: ok ? `signed in, ${models.length} models` : 'installed, not signed in',
       setupHint: 'Run `agent login` in a terminal, or set CURSOR_API_KEY.',

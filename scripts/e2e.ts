@@ -5,12 +5,15 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { Room, type AgentSession } from '../src/room/Room';
 import { getProvider } from '../src/providers/registry';
+import { findCli } from '../src/providers/cli';
+import { setVendorRoot } from '../src/providers/vendorLoader';
+setVendorRoot(process.cwd());
 import { DEFAULT_LIMITS, type AgentConfig } from '../src/shared/protocol';
 
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'roundtable-e2e-'));
-const claudePath = [path.join(os.homedir(), '.local/bin/claude')].find((p) => fs.existsSync(p));
 const env: Record<string, string | undefined> = { ...process.env };
 delete env.ANTHROPIC_API_KEY;
+console.log('claude cli:', findCli({ names: ['claude'] }));
 
 function agent(name: string, role: string): AgentConfig {
   return {
@@ -37,7 +40,7 @@ const room = new Room(
     },
     createSession: (config, roster) => {
       const session = getProvider(config.provider).createSession(config, roster, {
-        claudePath,
+        cliPath: findCli({ names: ['claude'] }),
         env,
         resumeId: undefined,
         resolveCwd: async () => cwd,

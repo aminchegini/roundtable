@@ -1,6 +1,7 @@
 import type { AgentSession, TurnResult } from '../room/Room';
 import type { AgentConfig, InteractionMode, Tokens } from '../shared/protocol';
-import { WRITE_TOOL, addTokens, buildFullPrompt, currentMode, editedPathsFrom, exists, findBin, home, primedInput, spawnJsonl } from './shared';
+import { WRITE_TOOL, addTokens, buildFullPrompt, currentMode, editedPathsFrom, exists, home, primedInput, spawnJsonl } from './shared';
+import { findCli } from './cli';
 import type { Provider, SessionContext } from './types';
 
 export interface TurnAcc {
@@ -69,8 +70,8 @@ export class GeminiAgentSession implements AgentSession {
 
   async runTurn(digest: string): Promise<TurnResult> {
     if (this.disposed) throw new Error('session disposed');
-    const bin = findBin('gemini');
-    if (!bin) return { text: '', passed: false, costUsd: 0, error: 'Gemini CLI not installed (npm i -g @google/gemini-cli)' };
+    const bin = this.ctx.cliPath ?? findCli({ names: ['gemini'] });
+    if (!bin) return { text: '', passed: false, costUsd: 0, error: 'Gemini CLI not installed (npm install -g @google/gemini-cli)' };
     const cwd = await this.ctx.resolveCwd(this.config);
     const input = this.primed ? digest : primedInput(await buildFullPrompt(this.config, this.roster, cwd, this.ctx), digest);
     this.primed = true;
@@ -138,6 +139,7 @@ export const geminiProvider: Provider = {
   enforcement: 'gates',
   costUsd: false,
   loginCommand: 'gemini',
+  installCommand: 'npm install -g @google/gemini-cli',
   defaultModel: 'gemini-3-pro-preview',
   staticModels: [
     { id: 'auto', label: 'auto' },
@@ -146,15 +148,16 @@ export const geminiProvider: Provider = {
     { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
     { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
   ],
-  async detect(env) {
-    const bin = findBin('gemini');
+  async detect(env, configuredPath) {
+    const bin = findCli({ names: ['gemini'], configured: configuredPath });
     const oauth = exists(home('.gemini', 'oauth_creds.json'));
     const apiKey = !!(env.GEMINI_API_KEY ?? env.GOOGLE_API_KEY);
     return {
       installed: !!bin,
+      cliPath: bin,
       authenticated: !bin ? false : oauth || apiKey ? true : 'unknown',
       detail: !bin ? 'Gemini CLI not installed' : apiKey ? 'API key from environment' : oauth ? 'Google login (~/.gemini)' : 'installed, login unknown',
-      setupHint: 'Install Gemini CLI (npm i -g @google/gemini-cli) and run `gemini` once to sign in, or set GEMINI_API_KEY.',
+      setupHint: bin ? 'Run `gemini` once to sign in, or set GEMINI_API_KEY.' : 'Install Gemini CLI (npm install -g @google/gemini-cli), then run `gemini` once to sign in.',
     };
   },
   createSession(agent, roster, ctx) {

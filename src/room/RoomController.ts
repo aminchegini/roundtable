@@ -42,7 +42,6 @@ export interface ControllerDeps {
   defaults(): { maxRounds: number };
   storage: ControllerStorage;
   env: Record<string, string | undefined>;
-  claudePath: string | undefined;
   resolveCwd(agent: AgentConfig): Promise<string | undefined>;
   log(text: string): void;
   emit(event: ControllerEvent): void;
@@ -273,7 +272,7 @@ export class RoomController {
       resumeId: this.deps.storage.getSessions()[config.id],
       guardrails: this.runtime,
       mode: () => this.modeOf(config),
-      claudePath: this.deps.claudePath,
+      cliPath: this.deps.providers.cliPath(config.provider),
       onEvent: (event) => {
         if (event.type === 'partial') this.deps.emit({ type: 'partial', agentId: config.id, text: event.text });
         else if (event.type === 'activity') this.deps.emit({ type: 'activity', agentId: config.id, text: event.text });

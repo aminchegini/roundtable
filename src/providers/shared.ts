@@ -2,7 +2,6 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { resolveBin } from '../guardrails/runner';
 import { buildRolePrompt } from '../room/SdkAgentSession';
 import type { AgentConfig, InteractionMode, Tokens } from '../shared/protocol';
 import type { SessionContext } from './types';
@@ -18,14 +17,6 @@ export function exists(file: string): boolean {
   } catch {
     return false;
   }
-}
-
-export function findBin(...names: string[]): string | undefined {
-  for (const name of names) {
-    const found = resolveBin(process.cwd(), name) ?? [home('.local', 'bin', name)].find(exists);
-    if (found) return found;
-  }
-  return undefined;
 }
 
 /** The "mother prompt" for a mode; empty for build. Enforced by tools too, this is the explanation the model sees. */

@@ -33,6 +33,10 @@ export interface ProviderView {
   setupHint: string;
   /** Interactive sign-in command, run in a terminal by the Sign in button. */
   loginCommand: string;
+  /** Shell command that installs the vendor CLI, run in a terminal by the Install button. */
+  installCommand: string;
+  /** Resolved executable Roundtable will run, when installed. */
+  cliPath?: string;
   models: ModelOption[];
   enforcement: Enforcement;
   /** Reports USD cost; otherwise only tokens. */
@@ -338,4 +342,5 @@ export type WebviewToHost =
   | { type: 'openInEditor' }
   | { type: 'refreshProviders' }
   | { type: 'login'; provider: ProviderId }
+  | { type: 'install'; provider: ProviderId }
   | { type: 'openDoc'; doc: string };

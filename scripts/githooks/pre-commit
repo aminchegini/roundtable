@@ -1,0 +1,5 @@
+#!/bin/sh
+# Enable once per clone: git config core.hooksPath scripts/githooks
+if git diff --cached --name-only | grep -q '^test/fixtures/'; then
+  node scripts/check-fixtures.mjs || exit 1
+fi

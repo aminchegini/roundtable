@@ -20,7 +20,8 @@ Screenshots: [room](screenshots/room.jpg) · [sidebar](screenshots/sidebar.jpg) 
 | --- | --- |
 | [Troubleshooting](troubleshooting.md) | Sign-in problems, failing turns, worktrees, runaway debates |
 | [FAQ](faq.md) | Short answers to common questions |
-| [Development](development.md) | Repository layout, data flow, tests, releasing |
+| [Development](development.md) | Repository layout, build output, data flow, tests |
+| [Release](release.md) | Publisher setup, cutting a release, pre-release vs stable, hotfixes |
 | [Changelog](../CHANGELOG.md) | What changed in each version |
 | [Contributing](../CONTRIBUTING.md) | How to help |
 | [Disclaimer](../DISCLAIMER.md) | Not affiliated with any vendor; your accounts, your terms; costs are estimates; no warranty |

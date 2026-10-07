@@ -4,6 +4,7 @@ import { codexProvider } from './codex';
 import { copilotProvider } from './copilot';
 import { cursorProvider } from './cursor';
 import { geminiProvider } from './gemini';
+import { resetCliCache } from './cli';
 import type { Provider, ProviderStatus } from './types';
 
 export const PROVIDERS: Provider[] = [claudeProvider, codexProvider, geminiProvider, copilotProvider, cursorProvider];
@@ -20,7 +21,11 @@ export class ProviderRegistry {
   private pending: Promise<void> | undefined;
   private listeners = new Set<() => void>();
 
-  constructor(private readonly env: () => Record<string, string | undefined>) {}
+  constructor(
+    private readonly env: () => Record<string, string | undefined>,
+    /** User-configured executable paths per provider (settings), empty = auto-detect. */
+    private readonly configuredPaths: () => Partial<Record<ProviderId, string>> = () => ({}),
+  ) {}
 
   onChange(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -29,10 +34,11 @@ export class ProviderRegistry {
 
   /** Detect every provider (in parallel); resolves when all are done. */
   refresh(): Promise<void> {
+    resetCliCache();
     this.pending ??= Promise.all(
       PROVIDERS.map(async (p) => {
         try {
-          this.status.set(p.id, await p.detect(this.env()));
+          this.status.set(p.id, await p.detect(this.env(), this.configuredPaths()[p.id]));
         } catch (err) {
           this.status.set(p.id, { installed: false, authenticated: false, detail: err instanceof Error ? err.message : String(err), setupHint: '' });
         }
@@ -46,6 +52,11 @@ export class ProviderRegistry {
 
   statusOf(id: ProviderId): ProviderStatus | undefined {
     return this.status.get(id);
+  }
+
+  /** Executable to run for a vendor, if detection found one. */
+  cliPath(id: ProviderId): string | undefined {
+    return this.status.get(id)?.cliPath;
   }
 
   models(id: ProviderId): ModelOption[] {
@@ -66,6 +77,8 @@ export class ProviderRegistry {
         detail: s?.detail ?? 'checking…',
         setupHint: s?.setupHint ?? '',
         loginCommand: p.loginCommand,
+        installCommand: p.installCommand,
+        cliPath: s?.cliPath,
         models: this.models(p.id),
         enforcement: p.enforcement,
         costUsd: p.costUsd,

@@ -16,5 +16,30 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
+      - run: npm run check:fixtures
       - run: npm run build
+      - run: npm test
+
+  package:
+    # Builds the real .vsix, checks its file list against package-manifest.txt,
+    # and attaches it to the run so a reviewer can install exactly this build.
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run package
+      # File list vs package-manifest.txt, denylist, and the 25 MB cap (the .vsix exists now).
+      - run: npm run check:package
+      # Imports the vendor bundles from the extracted .vsix: proves no dependence on node_modules.
+      - run: npm run check:vsix -- --no-live
+      - uses: actions/upload-artifact@v4
+        with:
+          name: roundtable-vsix
+          path: roundtable-*.vsix
+          retention-days: 14

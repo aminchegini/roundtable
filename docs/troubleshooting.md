@@ -2,6 +2,20 @@
 
 The **Roundtable** output channel (View → Output → Roundtable) logs every session start with its vendor, model and auth source, plus errors.
 
+## A provider shows "not installed"
+
+Roundtable does not bundle vendor CLIs. Click **Install** on the provider card (Help panel) — it opens a terminal with the install command and re-checks — or install by hand:
+
+| | |
+| --- | --- |
+| Claude | `npm install -g @anthropic-ai/claude-code` |
+| Codex | `npm install -g @openai/codex` |
+| Gemini | `npm install -g @google/gemini-cli` |
+| Copilot | `npm install -g @github/copilot` |
+| Cursor | `curl https://cursor.com/install -fsSL \| bash` |
+
+If it is installed but still "not installed": VS Code may not see your shell's `PATH` (common when launched from the Dock). Roundtable also reads your login shell's `PATH` and the usual global bin folders; if the executable is somewhere else, set `roundtable.<vendor>Path` to its full path and run **Roundtable: Refresh Providers**.
+
 ## A provider shows "not signed in"
 
 Run the vendor's login in a terminal, then **Roundtable: Refresh Providers**:

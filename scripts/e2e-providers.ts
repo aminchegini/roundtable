@@ -5,6 +5,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { PROVIDERS, ProviderRegistry } from '../src/providers/registry';
 import { Workspace } from '../src/room/Workspace';
+import { setVendorRoot } from '../src/providers/vendorLoader';
+// ROUNDTABLE_VENDOR_ROOT lets this script exercise the bundles inside an extracted .vsix (scripts/smoke-vsix.mjs).
+setVendorRoot(process.env.ROUNDTABLE_VENDOR_ROOT ?? process.cwd());
+console.log('vendor bundles from', process.env.ROUNDTABLE_VENDOR_ROOT ?? process.cwd());
 import type { KeyValue } from '../src/room/Workspace';
 
 class MemoryKV implements KeyValue {
@@ -23,14 +27,12 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'roundtable-e2e-providers-'))
 fs.writeFileSync(path.join(root, 'README.md'), '# scratch\n');
 const env: Record<string, string | undefined> = { ...process.env };
 delete env.ANTHROPIC_API_KEY;
-const claudePath = [path.join(os.homedir(), '.local/bin/claude')].find((p) => fs.existsSync(p));
-if (claudePath) env.ROUNDTABLE_CLAUDE_PATH = claudePath;
 
 const registry = new ProviderRegistry(() => env);
 console.log('detecting providers…');
 await registry.refresh();
 for (const v of registry.views()) {
-  console.log(`  ${v.id.padEnd(8)} installed=${v.installed} auth=${v.authenticated} — ${v.detail}`);
+  console.log(`  ${v.id.padEnd(8)} installed=${v.installed} auth=${v.authenticated} cli=${v.cliPath ?? '-'} — ${v.detail}`);
 }
 
 const ws = await Workspace.open({
@@ -39,7 +41,6 @@ const ws = await Workspace.open({
   globalState: new MemoryKV(),
   storageDir: path.join(root, '.storage'),
   env: async () => env,
-  claudePath,
   defaults: () => ({ maxRounds: 1 }),
   log: (t) => console.log(`  log: ${t}`),
   warn: (t) => console.log(`  warn: ${t}`),

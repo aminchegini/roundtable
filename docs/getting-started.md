@@ -2,20 +2,13 @@
 
 Roundtable puts several AI coding agents in one room inside VS Code. They answer you and each other, each with its own vendor, model and settings, and the whole thing runs on your machine with the subscriptions you already have.
 
-## 1. Install and run
+## 1. Install
 
-Until it is on the Marketplace, run it from source:
+- **VS Code**: Extensions view → search *Roundtable* → **Install Pre-Release**, or `code --install-extension eminhikmet.roundtable --pre-release`.
+- **Cursor / VSCodium / Windsurf**: search *Roundtable* on Open VSX, or download the `.vsix` from the [latest release](https://github.com/aminchegini/roundtable/releases) and use *Extensions → … → Install from VSIX*.
+- **From source**: `git clone https://github.com/aminchegini/roundtable && cd roundtable && npm install && npm run build`, open the folder in VS Code, press **F5**.
 
-```bash
-git clone https://github.com/aminchegini/roundtable
-cd roundtable
-npm install
-npm run build
-```
-
-Open the folder in VS Code and press **F5** (Run Extension). A second window opens with Roundtable installed. Open a project folder there.
-
-Works in Cursor too.
+Roundtable itself is ~1 MB: it contains no AI runtimes. Step 3 installs the vendor CLIs you want to use.
 
 ## 2. Open the room
 
@@ -28,17 +21,17 @@ Prefer a big view? Press `⌘⇧R` or run **Roundtable: Open Chat in Editor**. S
 
 ## 3. Check your providers
 
-Open **Help** (the `?` in the chat header). Each vendor card shows whether it is installed and signed in:
+Open **Help** (the `?` in the chat header). Each vendor card shows whether its CLI is installed and signed in, with an **Install** or **Sign in** button that opens a terminal with the right command and re-checks when you are done:
 
-| Provider | What it needs |
-| --- | --- |
-| Claude | Claude Code installed and signed in once (`claude`), or **Roundtable: Set API Key** |
-| Codex | `npm i -g @openai/codex`, then `codex login` (ChatGPT account) |
-| Gemini | `npm i -g @google/gemini-cli`, then run `gemini` once to sign in |
-| Copilot | `npm i -g @github/copilot`, then `copilot login` (Copilot subscription) |
-| Cursor agent | `curl https://cursor.com/install -fsSL \| bash`, then `agent login` |
+| Provider | Install | Sign in |
+| --- | --- | --- |
+| Claude | `npm install -g @anthropic-ai/claude-code` | `claude` once, or **Roundtable: Set API Key** |
+| Codex | `npm install -g @openai/codex` | `codex login` (ChatGPT account) |
+| Gemini | `npm install -g @google/gemini-cli` | `gemini` once |
+| Copilot | `npm install -g @github/copilot` | `copilot login` (Copilot subscription) |
+| Cursor agent | `curl https://cursor.com/install -fsSL \| bash` | `agent login` |
 
-Agents whose vendor is not signed in are greyed out with the setup hint. Click **Re-check providers** after signing in.
+Agents whose vendor is missing or signed out are greyed out and sit out of debates with an explanation. If a CLI is installed somewhere unusual, set `roundtable.<vendor>Path` in Settings.
 
 ## 4. Meet the default agents
 

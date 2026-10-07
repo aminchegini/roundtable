@@ -1,22 +1,29 @@
 import type { CopilotClient, CopilotSession, PermissionRequest, PermissionRequestResult, SessionConfig } from '@github/copilot-sdk';
 import type { AgentSession, TurnResult } from '../room/Room';
 import type { AgentConfig, InteractionMode, ModelOption, Tokens } from '../shared/protocol';
+import { findCli } from './cli';
 import { WRITE_TOOL, addTokens, buildFullPrompt, currentMode, editedPathsFrom, errorMessage } from './shared';
+import { loadVendor } from './vendorLoader';
 import type { Provider, SessionContext } from './types';
 
 type CopilotModule = typeof import('@github/copilot-sdk');
-let modulePromise: Promise<CopilotModule> | undefined;
-const loadModule = () => (modulePromise ??= import('@github/copilot-sdk'));
+const loadModule = () => loadVendor<CopilotModule>('copilot');
 
-/** One runtime process for the whole extension; sessions are cheap. */
-let clientPromise: Promise<CopilotClient> | undefined;
-async function client(): Promise<CopilotClient> {
-  clientPromise ??= loadModule().then(async ({ CopilotClient: Ctor }) => {
-    const c = new Ctor({});
-    await c.start();
-    return c;
-  });
-  return clientPromise;
+/** One runtime process per CLI path for the whole extension; sessions are cheap. */
+const clients = new Map<string, Promise<CopilotClient>>();
+async function client(cliPath: string): Promise<CopilotClient> {
+  let pending = clients.get(cliPath);
+  if (!pending) {
+    pending = loadModule().then(async ({ CopilotClient: Ctor, RuntimeConnection }) => {
+      // Explicit CLI: the SDK's bundled runtime package is not shipped with Roundtable.
+      const c = new Ctor({ connection: RuntimeConnection.forStdio({ path: cliPath }) });
+      await c.start();
+      return c;
+    });
+    clients.set(cliPath, pending);
+    pending.catch(() => clients.delete(cliPath));
+  }
+  return pending;
 }
 
 const EFFORTS: Record<AgentConfig['effort'], string> = { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' };
@@ -92,7 +99,8 @@ export class CopilotAgentSession implements AgentSession {
     if (this.session && !this.recreate) return this.session;
     this.recreate = false;
     this.cwd = await this.ctx.resolveCwd(this.config);
-    const c = await client();
+    if (!this.ctx.cliPath) throw new Error('GitHub Copilot CLI not found. Install it (npm install -g @github/copilot) or set roundtable.copilotPath.');
+    const c = await client(this.ctx.cliPath);
     const config = this.sessionConfig();
     this.session = this.sessionId ? await c.resumeSession(this.sessionId, config) : await c.createSession(config);
     if (this.session.sessionId !== this.sessionId) {
@@ -180,12 +188,17 @@ export const copilotProvider: Provider = {
   enforcement: 'full',
   costUsd: false,
   loginCommand: 'copilot login || gh auth login',
+  installCommand: 'npm install -g @github/copilot',
   defaultModel: 'auto',
   staticModels: [{ id: 'auto', label: 'auto' }],
-  async detect(env) {
+  async detect(env, configuredPath) {
+    const cliPath = findCli({ names: ['copilot'], configured: configuredPath });
+    if (!cliPath) {
+      return { installed: false, authenticated: false, detail: 'GitHub Copilot CLI not installed', setupHint: 'Install the Copilot CLI (npm install -g @github/copilot), then run `copilot login`. Requires a Copilot subscription.' };
+    }
     const token = env.COPILOT_GITHUB_TOKEN ?? env.GH_TOKEN ?? env.GITHUB_TOKEN;
     try {
-      const c = await Promise.race([client(), new Promise<never>((_, reject) => setTimeout(() => reject(new Error('runtime start timed out')), 20_000))]);
+      const c = await Promise.race([client(cliPath), new Promise<never>((_, reject) => setTimeout(() => reject(new Error('runtime start timed out')), 20_000))]);
       const status = await c.getAuthStatus();
       let models: ModelOption[] | undefined;
       if (status.isAuthenticated) {
@@ -193,14 +206,16 @@ export const copilotProvider: Provider = {
       }
       return {
         installed: true,
+        cliPath,
         authenticated: status.isAuthenticated,
         detail: status.isAuthenticated ? `GitHub login${status.login ? ` as ${status.login}` : ''} (${status.authType ?? 'user'})` : (status.statusMessage ?? 'not signed in'),
-        setupHint: 'Install GitHub Copilot CLI (npm i -g @github/copilot) and run `copilot login`, or set COPILOT_GITHUB_TOKEN. Requires a Copilot subscription.',
+        setupHint: 'Run `copilot login` or set COPILOT_GITHUB_TOKEN. Requires a Copilot subscription.',
         models,
       };
     } catch (err) {
       return {
         installed: true,
+        cliPath,
         authenticated: token ? 'unknown' : false,
         detail: `Copilot runtime unavailable: ${errorMessage(err)}`,
         setupHint: 'Run `copilot login` or set COPILOT_GITHUB_TOKEN. Requires a Copilot subscription.',

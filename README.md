@@ -57,25 +57,31 @@ Every vendor ships an agent that works alone. Real engineering is a conversation
 - **Guardrails.** Presets *solo*, *team*, *factory*, or à la carte: shell safety, protected paths, secrets scan, typecheck / lint / test gates, module boundaries, `AGENTS.md`, architecture map, ADRs, definition of done, reviewer veto, spec-first approval, worktree per implementer. Enforced with hooks for Claude and Copilot; checked after every turn for the others.
 - **VS Code native.** Activity Bar icon, Rooms & Agents tree with context menus, sidebar chat or editor tab, status bar, `⌘⇧R` to open, `⌘⇧.` to send the editor selection to the room.
 
-## Quick start
+## Install
 
-```bash
-git clone https://github.com/aminchegini/roundtable
-cd roundtable
-npm install && npm run build
-```
+> **Preview.** 0.4.x is a pre-release: it works, it is used daily, and things will still move. Please report what breaks.
 
-Open the folder in VS Code, press **F5**, open a project in the new window, click the **Roundtable** icon in the Activity Bar. Works in Cursor too.
+- **VS Code:** search *Roundtable* in the Extensions view (pre-release channel), or `code --install-extension eminhikmet.roundtable --pre-release`.
+- **Cursor, VSCodium, Windsurf:** search *Roundtable* on Open VSX, or install the `.vsix` from the [latest release](https://github.com/aminchegini/roundtable/releases).
+- **From source:** `git clone https://github.com/aminchegini/roundtable && cd roundtable && npm install && npm run build`, then press **F5** in VS Code.
 
-Then sign in to whichever vendors you use — the Help panel (`?`) shows the status of each:
+Then click the **Roundtable** icon in the Activity Bar.
 
-| Vendor | Sign in |
-| --- | --- |
-| Claude | `claude` once (Claude Code), or **Roundtable: Set API Key** |
-| Codex | `codex login` |
-| Gemini | `gemini` once |
-| Copilot | `copilot login` or `gh auth login` |
-| Cursor | `agent login` |
+### Requirements
+
+Roundtable is ~1 MB and ships **no AI runtimes**. It drives the vendor command-line agents you already have, with the accounts you are already signed in to. Install at least one:
+
+| Vendor | Install | Sign in |
+| --- | --- | --- |
+| Claude (Claude Code) | `npm install -g @anthropic-ai/claude-code` | `claude` once, or **Roundtable: Set API Key** |
+| OpenAI Codex | `npm install -g @openai/codex` | `codex login` |
+| Google Gemini | `npm install -g @google/gemini-cli` | `gemini` once |
+| GitHub Copilot | `npm install -g @github/copilot` | `copilot login` or `gh auth login` |
+| Cursor agent | `curl https://cursor.com/install -fsSL \| bash` | `agent login` |
+
+The Help panel (`?`) shows each vendor's status with **Install** / **Sign in** buttons that open a terminal and re-check. Executables are found on `PATH`, in `~/.local/bin`, Homebrew and npm global dirs, and via your login shell; `roundtable.<vendor>Path` settings override that.
+
+**Telemetry: none.** Roundtable sends nothing anywhere; the only network traffic is the vendors' own.
 
 Full walkthrough: [docs/getting-started.md](docs/getting-started.md).
 
@@ -112,12 +118,23 @@ Saved in `.roundtable/guardrails.json`, so the whole team runs the same factory.
 | [Agents](docs/agents.md) · [Rooms](docs/rooms.md) | every setting and action |
 | [Guardrails](docs/guardrails.md) | catalog, presets, setup, adding your own |
 | [Troubleshooting](docs/troubleshooting.md) · [FAQ](docs/faq.md) | |
-| [Development](docs/development.md) | layout, data flow, tests, release |
+| [Development](docs/development.md) · [Release](docs/release.md) | layout, build, tests, publishing |
 | [Changelog](CHANGELOG.md) · [Disclaimer](DISCLAIMER.md) | |
+
+## Settings
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `roundtable.maxRounds` | 6 | Default debate rounds per message; rooms can override |
+| `roundtable.chatLocation` | `sidebar` | Where **Open Chat** shows the room (`sidebar` or `editor`) |
+| `roundtable.defaultProvider` | `claude` | Vendor preselected for new agents |
+| `roundtable.claudePath` · `codexPath` · `geminiPath` · `copilotPath` · `cursorPath` | auto | Explicit executable paths when auto-detection misses |
+
+Per-room and per-agent settings (limits, modes, guardrails) live in the UI — see [docs/rooms.md](docs/rooms.md) and [docs/agents.md](docs/agents.md).
 
 ## Status
 
-Version 0.3.0, runs from source; not on the Marketplace yet. Claude, Codex and Copilot are exercised end-to-end; the Gemini and Cursor adapters are tested against their documented event formats and need an installed, signed-in CLI to try live. Cursor support is marked experimental.
+**0.4.0 pre-release.** Claude, Codex and Copilot are exercised end-to-end; the Gemini and Cursor adapters are tested against their documented event formats and need an installed, signed-in CLI to try live. Cursor support is marked experimental. Release process: [docs/release.md](docs/release.md).
 
 Roadmap: out-of-process hook files for Codex / Gemini / Cursor so PreToolUse blocks apply everywhere, Marketplace packaging, agents speaking in parallel, Python and Go guardrail catalogs, CI export of the same gates.
 

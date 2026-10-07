@@ -1,40 +1,49 @@
 import { readFileSync } from 'node:fs';
 import { SdkAgentSession } from '../room/SdkAgentSession';
 import { MODELS } from '../shared/protocol';
+import { findCli } from './cli';
 import { exists, home } from './shared';
 import type { Provider } from './types';
+import { loadVendor } from './vendorLoader';
 
 type Sdk = typeof import('@anthropic-ai/claude-agent-sdk');
 
-let sdkPromise: Promise<Sdk> | undefined;
-function loadSdk(): Promise<Sdk> {
-  sdkPromise ??= import('@anthropic-ai/claude-agent-sdk');
-  return sdkPromise;
-}
+const loadSdk = () => loadVendor<Sdk>('claude');
 
-/** Wraps a lazily loaded SDK session so the room can create sessions synchronously. */
+/**
+ * Defers both the vendor bundle import and the SDK session until the first
+ * turn, so creating an agent costs nothing and never throws (the bundle may be
+ * absent in unit tests or a broken install; the error then surfaces as a turn
+ * failure the room can show).
+ */
 class LazyClaudeSession {
-  private inner: Promise<SdkAgentSession>;
-  constructor(...args: ConstructorParameters<typeof SdkAgentSession> extends [infer A, infer R, infer C, unknown] ? [A, R, C] : never) {
-    this.inner = loadSdk().then((sdk) => new SdkAgentSession(args[0], args[1], args[2], sdk));
+  private inner: Promise<SdkAgentSession> | undefined;
+  constructor(
+    private readonly agent: Parameters<typeof SdkAgentSession.prototype.applyConfig>[0],
+    private readonly roster: Parameters<typeof SdkAgentSession.prototype.applyConfig>[1],
+    private readonly ctx: ConstructorParameters<typeof SdkAgentSession>[2],
+  ) {}
+  private session(): Promise<SdkAgentSession> {
+    this.inner ??= loadSdk().then((sdk) => new SdkAgentSession(this.agent, this.roster, this.ctx, sdk));
+    return this.inner;
   }
   runTurn(prompt: string) {
-    return this.inner.then((s) => s.runTurn(prompt));
+    return this.session().then((s) => s.runTurn(prompt));
   }
   interrupt() {
-    return this.inner.then((s) => s.interrupt());
+    return this.inner ? this.inner.then((s) => s.interrupt()) : Promise.resolve();
   }
   applyConfig(...a: Parameters<SdkAgentSession['applyConfig']>) {
-    return this.inner.then((s) => s.applyConfig(...a));
+    return this.inner ? this.inner.then((s) => s.applyConfig(...a)) : Promise.resolve();
   }
   restart() {
-    void this.inner.then((s) => s.restart());
+    void this.inner?.then((s) => s.restart());
   }
   forget() {
-    void this.inner.then((s) => s.forget());
+    void this.inner?.then((s) => s.forget());
   }
   dispose() {
-    void this.inner.then((s) => s.dispose());
+    void this.inner?.then((s) => s.dispose());
   }
 }
 
@@ -53,20 +62,24 @@ export const claudeProvider: Provider = {
   enforcement: 'full',
   costUsd: true,
   loginCommand: 'claude /login',
+  installCommand: 'npm install -g @anthropic-ai/claude-code',
   defaultModel: 'claude-sonnet-5-5',
   staticModels: MODELS.map((id) => ({ id, label: id.replace(/^claude-/, '').replace(/-\d{8}$/, '') })),
-  async detect(env) {
-    const bin = env.ROUNDTABLE_CLAUDE_PATH ?? [home('.local', 'bin', 'claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude'].find(exists);
-    // The SDK bundles its own executable, so Claude is always installed; the login is what matters.
+  async detect(env, configuredPath) {
+    const cliPath = findCli({ names: ['claude'], configured: configuredPath });
+    if (!cliPath) {
+      return { installed: false, authenticated: false, detail: 'Claude Code CLI not installed', setupHint: 'Install Claude Code (npm install -g @anthropic-ai/claude-code), then run `claude` once to sign in.' };
+    }
     // Credentials live in ~/.claude/.credentials.json on Linux and in the keychain on macOS,
     // where ~/.claude.json records the signed-in account instead.
     const credentials = exists(home('.claude', '.credentials.json')) || hasOauthAccount();
     const apiKey = !!env.ANTHROPIC_API_KEY;
     return {
       installed: true,
+      cliPath,
       authenticated: credentials || apiKey ? true : 'unknown',
-      detail: apiKey ? 'API key from environment' : credentials ? `Claude Code login${bin ? '' : ' (SDK bundled CLI)'}` : 'no stored login found; checked on first use',
-      setupHint: 'Install Claude Code (npm i -g @anthropic-ai/claude-code) and run `claude` once to sign in, or run "Roundtable: Set API Key".',
+      detail: apiKey ? 'API key from environment' : credentials ? 'Claude Code login' : 'no stored login found; checked on first use',
+      setupHint: 'Run `claude` once to sign in, or run "Roundtable: Set API Key".',
     };
   },
   createSession(agent, roster, ctx) {
