@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { applyCursorEvent, type CursorAcc } from '../src/providers/cursor';
-import { isResumeError } from '../src/providers/shared';
+import { isResumeError, isSessionError } from '../src/providers/shared';
 import { applyGeminiEvent, type TurnAcc } from '../src/providers/gemini';
 import { PROVIDERS, ProviderRegistry } from '../src/providers/registry';
 import { isAuthError, type Provider } from '../src/providers/types';
@@ -40,6 +40,7 @@ class FakeSession implements AgentSession {
   }
   async interrupt() {}
   async applyConfig() {}
+  forget() {}
   dispose() {}
 }
 
@@ -223,12 +224,49 @@ describe('Workspace', () => {
   });
 });
 
-describe('resume detection', () => {
-  it('recognises vendor "session not found" errors', () => {
+describe('session recovery', () => {
+  it('classifies session-level failures', () => {
     expect(isResumeError('Codex Exec exited with code 1: Error: thread/resume: thread/resume failed: no rollout found for thread id d4bd51a7 (code -32600)')).toBe(true);
-    expect(isResumeError('Session abc not found')).toBe(true);
-    expect(isResumeError('unexpected status 401 Unauthorized')).toBe(false);
-    expect(isResumeError(undefined)).toBe(false);
+    expect(isSessionError('session ended unexpectedly')).toBe(true);
+    expect(isSessionError('gemini exited with code 1')).toBe(true);
+    expect(isSessionError('No conversation found with session ID abc')).toBe(true);
+    expect(isSessionError('unexpected status 401 Unauthorized')).toBe(false);
+    expect(isSessionError('interrupted')).toBe(false);
+    expect(isSessionError(undefined)).toBe(false);
+  });
+
+  it('forgets a dead session, clears the stored id, and retries the turn once', async () => {
+    const restore = patchProvider();
+    const forgets: string[] = [];
+    fakeProvider.createSession = (agent) => {
+      const s = new FakeSession(agent);
+      s.forget = () => forgets.push(agent.name);
+      return s;
+    };
+    try {
+      const { ws, state } = await openWorkspace(tmpdir());
+      const kit = ws.agents[2]!;
+      await ws.saveAgent({ ...kit, provider: 'cursor' });
+      const dm = ws.dmWith(kit.id);
+      await state.set(`roundtable.room.${dm.id}.sessions`, { [kit.id]: 'dead-id' });
+      const c = ws.controller(dm.id)!;
+      scripts.set(kit.name, [
+        () => {
+          throw new Error('thread/resume failed: no rollout found for thread id dead-id');
+        },
+        'back on a fresh thread',
+      ]);
+      c.send('hello?');
+      await c.room.whenIdle();
+      expect(forgets).toEqual([kit.name]);
+      expect(c.state().messages.at(-1)!.text).toBe('back on a fresh thread');
+      expect(c.state().messages.some((m) => m.from === 'system' && /failed/.test(m.text))).toBe(false);
+      expect(state.get<Record<string, string>>(`roundtable.room.${dm.id}.sessions`)?.[kit.id]).toBeUndefined();
+      ws.dispose();
+    } finally {
+      fakeProvider.createSession = (agent) => new FakeSession(agent);
+      restore();
+    }
   });
 });
 

@@ -12,6 +12,10 @@ Run the vendor's login in a terminal, then **Roundtable: Refresh Providers**:
 - Copilot: `copilot login` or `gh auth login`. Needs a Copilot subscription.
 - Cursor: `agent login`. If `agent --list-models` prints "No models available for this account", the login is missing or the plan has no CLI access.
 
+## "previous session lost; starting a fresh one"
+
+Not an error. The vendor could not resume the agent's saved session (it was pruned, never written because an earlier turn crashed, or the vendor restarted). Roundtable forgets the dead id, re-sends the agent's instructions and retries the turn once on a fresh session. The agent loses its memory of that room; the transcript stays. If the retry fails too, the real error is shown as usual.
+
 ## An agent fails every turn
 
 The system message in the room says why. Common causes:
