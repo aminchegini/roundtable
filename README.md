@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="media/icon.png" width="96" alt="Roundtable">
+  <img src="https://raw.githubusercontent.com/aminchegini/roundtable/main/media/icon.png" width="96" alt="Roundtable">
 </p>
 
 <h1 align="center">Roundtable</h1>
@@ -27,7 +27,7 @@
 
 Put a Claude architect, a Codex implementer and a Gemini skeptic in a room. Ask a question. They answer you **and each other**, one at a time, until they run out of things to say. DM one of them when you want a private word. Pin the rooms you live in. Add guardrails so the whole cast obeys your project's architecture.
 
-![Roundtable in the editor](docs/screenshot-editor.jpg)
+![Roundtable in the editor](https://raw.githubusercontent.com/aminchegini/roundtable/main/docs/screenshot-editor.jpg)
 
 ## Why
 
