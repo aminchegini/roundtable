@@ -65,6 +65,7 @@ export class ProviderRegistry {
         authenticated: s?.authenticated ?? 'unknown',
         detail: s?.detail ?? 'checking…',
         setupHint: s?.setupHint ?? '',
+        loginCommand: p.loginCommand,
         models: this.models(p.id),
         enforcement: p.enforcement,
         costUsd: p.costUsd,

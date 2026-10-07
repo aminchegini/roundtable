@@ -45,7 +45,8 @@ export type RoomEvent =
   | { type: 'user-message' }
   | { type: 'turn-start'; agentId: string }
   /** An agent finished a turn without error; `reply` carries parsed text commands. */
-  | { type: 'turn-done'; agentId: string; reply: ParsedReply };
+  | { type: 'turn-done'; agentId: string; reply: ParsedReply }
+  | { type: 'turn-error'; agentId: string; error: string };
 
 export interface RoomDeps {
   createSession(config: AgentConfig, roster: AgentConfig[]): AgentSession;
@@ -190,6 +191,11 @@ export class Room {
     this.stopRequested = true;
     await this.active?.session.interrupt().catch(() => undefined);
     await this.loop;
+  }
+
+  /** Text of the last thing the user said, for retries. */
+  get lastUserMessage(): string | undefined {
+    return [...this.messages].reverse().find((m) => m.from === USER_ID)?.text;
   }
 
   /** Resolves when the current debate has ended. */
@@ -346,6 +352,7 @@ export class Room {
       this.consecutiveErrors += 1;
       this.consecutivePasses += 1;
       this.post('system', `${member.config.name} failed: ${result.error}`);
+      this.deps.emit({ type: 'turn-error', agentId: member.config.id, error: result.error });
     } else {
       member.status = 'idle';
       this.consecutiveErrors = 0;

@@ -127,6 +127,7 @@ export const geminiProvider: Provider = {
   vendor: 'Google',
   enforcement: 'gates',
   costUsd: false,
+  loginCommand: 'gemini',
   defaultModel: 'gemini-3-pro-preview',
   staticModels: [
     { id: 'auto', label: 'auto' },

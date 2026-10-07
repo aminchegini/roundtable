@@ -1,7 +1,7 @@
 import type { GuardrailRegistry } from '../guardrails/registry';
 import type { GuardrailRuntime } from '../guardrails/runtime';
 import { getProvider, type ProviderRegistry } from '../providers/registry';
-import type { SessionContext } from '../providers/types';
+import { isAuthError, type SessionContext } from '../providers/types';
 import { describeToolUse } from './SdkAgentSession';
 import type {
   AgentConfig,
@@ -41,6 +41,8 @@ export interface ControllerDeps {
   emit(event: ControllerEvent): void;
   /** Called when the room transcript or activity changed (for trees and status bar). */
   changed(): void;
+  /** A turn failed because the vendor wants the user to sign in. */
+  loginNeeded(agent: AgentConfig, reason: string): void;
 }
 
 interface PendingPermission {
@@ -129,6 +131,11 @@ export class RoomController {
             case 'turn-done': {
               const agent = this.participants().find((a) => a.id === event.agentId);
               if (agent) this.runtime?.applyReply(agent, event.reply);
+              break;
+            }
+            case 'turn-error': {
+              const agent = this.participants().find((a) => a.id === event.agentId);
+              if (agent && isAuthError(event.error)) this.deps.loginNeeded(agent, event.error);
               break;
             }
           }
@@ -256,6 +263,15 @@ export class RoomController {
 
   restartAll(): void {
     this.room.restartAll();
+  }
+
+  /** Restart sessions and post the user's last message again (after a sign-in). */
+  retryLast(): boolean {
+    const text = this.room.lastUserMessage;
+    if (!text) return false;
+    this.room.restartAll();
+    this.room.postUserMessage(text);
+    return true;
   }
 
   /** Clear transcript and sessions; agents start fresh on their next turn. */

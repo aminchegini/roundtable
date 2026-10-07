@@ -42,7 +42,9 @@ export type WorkspaceEvent =
   | { type: 'providers' }
   | { type: 'guardrails' }
   | { type: 'activity'; roomId: string }
-  | { type: 'navigate'; view: 'room' | 'guardrails' | 'help' };
+  | { type: 'navigate'; view: 'room' | 'guardrails' | 'help' }
+  /** A vendor rejected a turn for lack of a login. */
+  | { type: 'login-needed'; provider: ProviderId; agentName: string; reason: string; roomId: string };
 
 /** Everything the extension knows about one VS Code workspace: agents, rooms, guardrails, providers. */
 export class Workspace {
@@ -54,6 +56,7 @@ export class Workspace {
   private controllerEvents = new Map<string, Set<(event: ControllerEvent) => void>>();
   private listeners = new Set<(event: WorkspaceEvent) => void>();
   private env: Record<string, string | undefined> = {};
+  private lastLoginPrompt = new Map<ProviderId, number>();
 
   private constructor(private readonly deps: WorkspaceDeps) {
     this.rooms = new RoomStore(deps.state.get<RoomStoreData>(ROOMS_KEY), (data) => void deps.state.set(ROOMS_KEY, data));
@@ -233,6 +236,13 @@ export class Workspace {
         this.rooms.touch(roomId);
         this.notify({ type: 'activity', roomId });
       },
+      loginNeeded: (agent, reason) => {
+        // One prompt per vendor per minute, however many agents fail.
+        const last = this.lastLoginPrompt.get(agent.provider) ?? 0;
+        if (Date.now() - last < 60_000) return;
+        this.lastLoginPrompt.set(agent.provider, Date.now());
+        this.notify({ type: 'login-needed', provider: agent.provider, agentName: agent.name, reason, roomId });
+      },
     });
     this.controllers.set(roomId, controller);
     return controller;
@@ -304,6 +314,16 @@ export class Workspace {
       result.agents !== before ? 'updated agent settings' : '',
     ].filter(Boolean);
     return [`Guardrail setup: ${lines.length > 0 ? lines.join('; ') : 'nothing to do'}.`, ...result.errors.map((e) => `Guardrail setup problem: ${e}`)];
+  }
+
+  /** After a sign-in: re-detect providers, restart sessions, re-send the last message in a room. */
+  async retryAfterLogin(roomId: string | undefined): Promise<boolean> {
+    this.lastLoginPrompt.clear();
+    await this.providers.refresh();
+    for (const c of this.controllers.values()) c.restartAll();
+    const target = roomId ?? this.rooms.activeRoomId;
+    const controller = target ? this.controllers.get(target) : undefined;
+    return controller?.retryLast() ?? false;
   }
 
   /** Roomless summary for trees and the status bar. */

@@ -160,6 +160,7 @@ export const codexProvider: Provider = {
   vendor: 'OpenAI',
   enforcement: 'gates',
   costUsd: false,
+  loginCommand: 'codex login',
   defaultModel: configuredModel() ?? 'gpt-6-astra',
   staticModels: [
     { id: 'gpt-6-astra', label: 'GPT-6 Astra' },

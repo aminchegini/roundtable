@@ -49,7 +49,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     openInEditor: () => openEditorPanel(context, ws),
     openDoc: (doc: string) => openDoc(context, doc),
     refreshProviders: () => ws.providers.refresh(),
+    login: (provider: string) => void vscode.commands.executeCommand('roundtable.login', provider),
   };
+
+  // A vendor refused a turn for lack of a login: offer to sign in right here.
+  context.subscriptions.push({
+    dispose: ws.onChange((event) => {
+      if (event.type !== 'login-needed') return;
+      const provider = getProvider(event.provider);
+      void vscode.window
+        .showWarningMessage(`${provider.title} needs you to sign in (${event.agentName} could not answer): ${shorten(event.reason)}`, 'Sign in', 'Not now')
+        .then((choice) => {
+          if (choice === 'Sign in') void vscode.commands.executeCommand('roundtable.login', event.provider, event.roomId);
+        });
+    }),
+  });
 
   // Sidebar: tree + chat view.
   const tree = new RoomsTree(ws);
@@ -261,6 +275,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     await showChat();
   });
   register('roundtable.refreshProviders', () => ws.providers.refresh());
+  register('roundtable.login', async (arg, roomArg) => {
+    let id = typeof arg === 'string' ? (arg as ProviderId) : undefined;
+    if (!id) {
+      const pick = await vscode.window.showQuickPick(
+        ws.providers.views().map((p) => ({ label: p.title, description: p.detail, detail: `runs: ${p.loginCommand}`, id: p.id })),
+        { title: 'Sign in to a provider' },
+      );
+      id = pick?.id;
+    }
+    if (!id) return;
+    const provider = getProvider(id);
+    const terminal = vscode.window.createTerminal({ name: `Roundtable · ${provider.title} sign-in` });
+    terminal.show();
+    terminal.sendText(provider.loginCommand);
+    const roomId = typeof roomArg === 'string' ? roomArg : ws.rooms.activeRoomId;
+    const choice = await vscode.window.showInformationMessage(
+      `Finish the ${provider.title} sign-in in the terminal, then come back.`,
+      'Done, retry',
+      'Done',
+    );
+    if (!choice) return;
+    const retried = await ws.retryAfterLogin(choice === 'Done, retry' ? roomId : undefined);
+    const status = ws.providers.views().find((p) => p.id === id);
+    const ok = status && status.installed && status.authenticated !== false;
+    void vscode.window.showInformationMessage(
+      ok
+        ? `${provider.title}: ${status.detail}.${retried ? ' Your last message was sent again.' : ''}`
+        : `${provider.title} still looks signed out (${status?.detail ?? 'unknown'}). ${provider.id === 'claude' ? 'Claude checks the login on the next turn; try sending a message.' : status?.setupHint ?? ''}`,
+    );
+  });
   register('roundtable.openGuardrails', async () => {
     await showChat();
     ws.navigate('guardrails');
@@ -285,6 +329,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   log.appendLine(`Roundtable ready: ${ws.agents.length} agents, ${ws.rooms.list().length} rooms, providers: ${PROVIDERS.map((p) => p.id).join(', ')}`);
 }
 
+function shorten(text: string): string {
+  const line = text.split('\n')[0] ?? text;
+  return line.length > 140 ? `${line.slice(0, 140)}…` : line;
+}
+
 function openEditorPanel(context: vscode.ExtensionContext, ws: Workspace): void {
   if (editorPanel) {
     editorPanel.reveal();
@@ -300,6 +349,7 @@ function openEditorPanel(context: vscode.ExtensionContext, ws: Workspace): void 
     openInEditor: () => panel.reveal(),
     openDoc: (doc) => openDoc(context, doc),
     refreshProviders: () => ws.providers.refresh(),
+    login: (provider) => void vscode.commands.executeCommand('roundtable.login', provider),
   });
   editorPanel = panel;
   panel.onDidDispose(() => {

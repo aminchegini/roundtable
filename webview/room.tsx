@@ -147,7 +147,16 @@ function Welcome({ state, onAction }: { state: State; onAction(action: 'guardrai
                   <strong>{a.config.name}</strong> <span className="hint">{p?.title ?? a.config.provider} · {a.config.model}</span>
                   <br />
                   <span className="hint">{a.config.role.split('\n')[0] || 'no role yet'}</span>
-                  {bad && <div className="warn-text">⚠ {p?.detail}. {p?.setupHint}</div>}
+                  {bad && (
+                    <div className="warn-text">
+                      ⚠ {p?.detail}. {p?.setupHint}{' '}
+                      {p?.installed && (
+                        <button className="small" onClick={() => post({ type: 'login', provider: p.id })}>
+                          Sign in
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </span>
               </div>
             );

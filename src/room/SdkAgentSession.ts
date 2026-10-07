@@ -324,7 +324,7 @@ export class SdkAgentSession implements AgentSession {
         if (m.subtype === 'success' && !m.is_error) {
           this.finishTurn({ text: m.result });
         } else {
-          this.finishTurn({ error: m.subtype === 'success' ? m.result || 'request failed' : m.subtype });
+          this.finishTurn({ error: explainError(m.subtype === 'success' ? m.result || 'request failed' : m.subtype) });
         }
         break;
     }
@@ -346,6 +346,15 @@ export class SdkAgentSession implements AgentSession {
       this.shutdown();
     }
   }
+}
+
+/** Turn vendor error text into something the user can act on. */
+export function explainError(text: string): string {
+  if (/OAuth session expired|Failed to authenticate|not logged in|Invalid authentication/i.test(text)) {
+    return `${text} — your Claude Code login has expired. Run \`claude\` in a terminal and type /login, then send another message.`;
+  }
+  if (/error_max_budget_usd/.test(text)) return 'Session budget exhausted (error_max_budget_usd).';
+  return text;
 }
 
 /** One-line description of a tool call for the activity line and permission prompts. */
