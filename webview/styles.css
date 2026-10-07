@@ -872,6 +872,27 @@ button.chip.add:hover:not(:disabled) {
   padding: 2px 6px;
 }
 
+/* pending cards (spec approval, permissions) never crush the transcript */
+
+.cards {
+  flex-shrink: 0;
+  max-height: 45%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rt-border);
+}
+
+.cards .card {
+  margin: 0 16px;
+}
+
+.cards .card:last-child {
+  margin-bottom: 8px;
+}
+
 /* composer v3 */
 
 .composer {

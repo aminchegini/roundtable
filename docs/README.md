@@ -2,6 +2,8 @@
 
 Start with **[Getting started](getting-started.md)** — install, sign in to your vendors, first conversation.
 
+Screenshots: [room](screenshots/room.jpg) · [sidebar](screenshots/sidebar.jpg) · [room settings](screenshots/room-settings.jpg) · [guardrails](screenshots/guardrails.jpg) · [help](screenshots/help.jpg)
+
 ## Guides
 
 | Guide | What it covers |
