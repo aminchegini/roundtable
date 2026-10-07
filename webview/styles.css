@@ -635,6 +635,7 @@ label.inline input[type='checkbox'] {
 
 .header-row.participants {
   gap: 6px;
+  align-items: center;
 }
 
 button.ghost {
@@ -681,7 +682,9 @@ button.ghost.active {
 .chip {
   display: inline-flex;
   align-items: stretch;
-  border-radius: 12px;
+  height: 26px;
+  box-sizing: border-box;
+  border-radius: 13px;
   font-size: 0.9em;
   color: var(--vscode-foreground);
   background: var(--rt-surface);
@@ -722,14 +725,6 @@ button.ghost.active {
   background: var(--rt-surface-strong);
 }
 
-.chip.add {
-  padding: 0;
-}
-
-.chip.add .chip-main,
-.chip.add {
-  font-weight: 600;
-}
 
 .mode-tag {
   padding: 0 5px;
@@ -752,8 +747,19 @@ button.ghost.active {
 }
 
 button.chip.add {
-  padding: 3px 10px;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  padding: 0;
+  font-size: 1.05em;
+  line-height: 1;
   font-weight: 600;
+  color: var(--rt-muted);
+}
+
+button.chip.add:hover:not(:disabled) {
+  color: var(--vscode-foreground);
+  background: var(--rt-surface-strong);
 }
 
 .pbadge {
