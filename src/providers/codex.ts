@@ -1,13 +1,14 @@
 import * as fs from 'node:fs';
 import type { Codex, ModelReasoningEffort, Thread, ThreadEvent, ThreadOptions } from '@openai/codex-sdk';
+import { findCli } from './cli';
+import { loadVendor } from './vendorLoader';
 import type { AgentSession, TurnResult } from '../room/Room';
 import type { AgentConfig, InteractionMode, Tokens } from '../shared/protocol';
 import { addTokens, buildFullPrompt, currentMode, errorMessage, exists, home, primedInput } from './shared';
 import type { Provider, SessionContext } from './types';
 
 type CodexModule = typeof import('@openai/codex-sdk');
-let modulePromise: Promise<CodexModule> | undefined;
-const loadCodex = () => (modulePromise ??= import('@openai/codex-sdk'));
+const loadCodex = () => loadVendor<CodexModule>('codex');
 
 const EFFORTS: Record<AgentConfig['effort'], ModelReasoningEffort> = { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' };
 
@@ -105,8 +106,10 @@ export class CodexAgentSession implements AgentSession {
   private async ensureThread(cwd: string | undefined): Promise<Thread> {
     if (this.thread && !this.recreate) return this.thread;
     this.recreate = false;
+    if (!this.ctx.cliPath) throw new Error('Codex CLI not found. Install it (npm install -g @openai/codex) or set roundtable.codexPath.');
     const { Codex: CodexCtor } = await loadCodex();
-    const codex: Codex = new CodexCtor({ env: cleanEnv(this.ctx.env) });
+    // Always an explicit executable: the SDK's bundled binary package is not shipped.
+    const codex: Codex = new CodexCtor({ env: cleanEnv(this.ctx.env), codexPathOverride: this.ctx.cliPath });
     const options = this.threadOptions(cwd);
     this.thread = this.threadId ? codex.resumeThread(this.threadId, options) : codex.startThread(options);
     return this.thread;
@@ -182,6 +185,7 @@ export const codexProvider: Provider = {
   enforcement: 'gates',
   costUsd: false,
   loginCommand: 'codex login',
+  installCommand: 'npm install -g @openai/codex',
   defaultModel: configuredModel() ?? 'gpt-6-astra',
   staticModels: [
     { id: 'gpt-6-astra', label: 'GPT-6 Astra' },
@@ -189,15 +193,20 @@ export const codexProvider: Provider = {
     { id: 'gpt-6-luna', label: 'GPT-6 Luna' },
     { id: 'gpt-5.5', label: 'GPT-5.5' },
   ],
-  async detect(env) {
+  async detect(env, configuredPath) {
+    const cliPath = findCli({ names: ['codex'], configured: configuredPath });
+    if (!cliPath) {
+      return { installed: false, authenticated: false, detail: 'Codex CLI not installed', setupHint: 'Install the Codex CLI (npm install -g @openai/codex), then run `codex login`.' };
+    }
     const auth = exists(home('.codex', 'auth.json'));
     const apiKey = !!env.CODEX_API_KEY;
     const model = configuredModel();
     return {
       installed: true,
+      cliPath,
       authenticated: auth || apiKey,
       detail: apiKey ? 'API key from environment' : auth ? `ChatGPT login (~/.codex)${model ? `, default model ${model}` : ''}` : 'not signed in',
-      setupHint: 'Install the Codex CLI (npm i -g @openai/codex) and run `codex login`, or set CODEX_API_KEY.',
+      setupHint: 'Run `codex login`, or set CODEX_API_KEY.',
       models: model && !['gpt-6-astra', 'gpt-6.1-sol', 'gpt-6-luna', 'gpt-5.5'].includes(model) ? [{ id: model, label: model }] : undefined,
     };
   },

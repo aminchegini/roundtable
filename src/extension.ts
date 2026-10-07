@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { getProvider, PROVIDERS } from './providers/registry';
+import { setVendorRoot } from './providers/vendorLoader';
 import { Workspace, type KeyValue } from './room/Workspace';
 import { MODES, MODE_HINTS, MODE_LABELS, type AgentConfig, type InteractionMode, type ProviderId, type RoomMeta } from './shared/protocol';
 import { ChatHost } from './vscode/ChatHost';
@@ -18,7 +19,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const log = vscode.window.createOutputChannel('Roundtable');
   context.subscriptions.push(log);
 
+  // Vendor SDK bundles live under the extension folder (dist/vendor/*.mjs).
+  setVendorRoot(context.extensionUri.fsPath);
   const memento = (m: vscode.Memento): KeyValue => ({ get: (k) => m.get(k), set: (k, v) => Promise.resolve(m.update(k, v)) });
+  const configuredPaths = (): Partial<Record<ProviderId, string>> => {
+    const cfg = vscode.workspace.getConfiguration('roundtable');
+    const read = (key: string) => cfg.get<string>(key, '').trim() || undefined;
+    return { claude: read('claudePath'), codex: read('codexPath'), gemini: read('geminiPath'), copilot: read('copilotPath'), cursor: read('cursorPath') };
+  };
   const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const ws = await Workspace.open({
     root,
@@ -30,11 +38,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       delete env.ANTHROPIC_API_KEY;
       const key = await context.secrets.get(API_KEY_SECRET);
       if (key) env.ANTHROPIC_API_KEY = key;
-      const claudePath = resolveClaudePath();
-      if (claudePath) env.ROUNDTABLE_CLAUDE_PATH = claudePath;
       return env;
     },
-    claudePath: resolveClaudePath(),
+    configuredPaths,
     defaults: () => ({ maxRounds: vscode.workspace.getConfiguration('roundtable').get('maxRounds', 6) }),
     log: (text) => log.appendLine(text),
     warn: (text) => void vscode.window.showWarningMessage(`Roundtable: ${text}`),
@@ -47,16 +53,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     openDoc: (doc: string) => openDoc(context, doc),
     refreshProviders: () => ws.providers.refresh(),
     login: (provider: string) => void vscode.commands.executeCommand('roundtable.login', provider),
+    install: (provider: string) => void vscode.commands.executeCommand('roundtable.install', provider),
   };
 
-  // A vendor refused a turn for lack of a login: offer to sign in right here.
+  // A vendor refused a turn (missing CLI or expired login): offer the fix right here.
   context.subscriptions.push({
     dispose: ws.onChange((event) => {
       if (event.type !== 'login-needed') return;
       const provider = getProvider(event.provider);
+      const install = event.kind === 'install';
       void vscode.window
-        .showWarningMessage(`${provider.title} needs you to sign in (${event.agentName} could not answer): ${shorten(event.reason)}`, 'Sign in', 'Not now')
+        .showWarningMessage(
+          install
+            ? `${provider.title} CLI is not installed (${event.agentName} could not answer). Install it to use this agent.`
+            : `${provider.title} needs you to sign in (${event.agentName} could not answer): ${shorten(event.reason)}`,
+          install ? 'Install' : 'Sign in',
+          'Not now',
+        )
         .then((choice) => {
+          if (choice === 'Install') void vscode.commands.executeCommand('roundtable.install', event.provider, event.roomId);
           if (choice === 'Sign in') void vscode.commands.executeCommand('roundtable.login', event.provider, event.roomId);
         });
     }),
@@ -332,6 +347,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const mode = await pickMode(`Mode for ${agent.name}`, undefined);
     if (mode) await ws.setAgentMode(agent.id, mode);
   });
+  register('roundtable.install', async (arg, roomArg) => {
+    let id = typeof arg === 'string' ? (arg as ProviderId) : undefined;
+    if (!id) {
+      const pick = await vscode.window.showQuickPick(
+        ws.providers.views().map((p) => ({ label: p.title, description: p.installed ? `installed: ${p.cliPath}` : 'not installed', detail: `runs: ${p.installCommand}`, id: p.id })),
+        { title: 'Install a vendor CLI' },
+      );
+      id = pick?.id;
+    }
+    if (!id) return;
+    const provider = getProvider(id);
+    const terminal = vscode.window.createTerminal({ name: `Roundtable · ${provider.title} install` });
+    terminal.show();
+    terminal.sendText(provider.installCommand);
+    const roomId = typeof roomArg === 'string' ? roomArg : ws.rooms.activeRoomId;
+    const choice = await vscode.window.showInformationMessage(`Finish the ${provider.title} install in the terminal, then come back.`, 'Done, re-check', 'Done');
+    if (!choice) return;
+    await ws.providers.refresh();
+    const status = ws.providers.views().find((p) => p.id === id);
+    if (status?.installed) {
+      const signedIn = status.authenticated !== false;
+      const next = signedIn && choice === 'Done, re-check' ? await ws.retryAfterLogin(roomId) : false;
+      void vscode.window.showInformationMessage(
+        `${provider.title} found at ${status.cliPath}. ${signedIn ? (next ? 'Your last message was sent again.' : 'Ready.') : `Now sign in: ${status.setupHint}`}`,
+        ...(signedIn ? [] : ['Sign in']),
+      ).then((c) => {
+        if (c === 'Sign in') void vscode.commands.executeCommand('roundtable.login', id, roomId);
+      });
+    } else {
+      void vscode.window.showWarningMessage(`${provider.title} still not found. If it installed somewhere unusual, set roundtable.${id}Path to the executable.`);
+    }
+  });
   register('roundtable.roomSettings', async (arg) => {
     const room = await roomFrom(arg, 'Room settings');
     if (!room) return;
@@ -394,6 +441,7 @@ function openEditorPanel(context: vscode.ExtensionContext, ws: Workspace): void 
     openDoc: (doc) => openDoc(context, doc),
     refreshProviders: () => ws.providers.refresh(),
     login: (provider) => void vscode.commands.executeCommand('roundtable.login', provider),
+    install: (provider) => void vscode.commands.executeCommand('roundtable.install', provider),
   });
   editorPanel = panel;
   panel.onDidDispose(() => {
@@ -409,11 +457,6 @@ function openDoc(context: vscode.ExtensionContext, doc: string): void {
   void vscode.commands.executeCommand('markdown.showPreview', uri);
 }
 
-function resolveClaudePath(): string | undefined {
-  const configured = vscode.workspace.getConfiguration('roundtable').get<string>('claudePath', '').trim();
-  if (configured) return configured;
-  return [path.join(os.homedir(), '.local', 'bin', 'claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude'].find((p) => fs.existsSync(p));
-}
 
 export function deactivate(): void {
   workspace?.dispose();

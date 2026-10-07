@@ -1,0 +1,13 @@
+CHANGELOG.md
+DISCLAIMER.md
+LICENSE
+README.md
+dist/extension.js
+dist/vendor/claude.mjs
+dist/vendor/codex.mjs
+dist/vendor/copilot.mjs
+dist/webview/main.css
+dist/webview/main.js
+media/icon.png
+media/icon.svg
+package.json

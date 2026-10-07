@@ -11,6 +11,9 @@ import { GuardrailRuntime } from '../src/guardrails/runtime';
 import { resolveGuardrails } from '../src/guardrails/store';
 import { Room } from '../src/room/Room';
 import { getProvider } from '../src/providers/registry';
+import { findCli } from '../src/providers/cli';
+import { setVendorRoot } from '../src/providers/vendorLoader';
+setVendorRoot(process.cwd());
 import { DEFAULT_LIMITS, type AgentConfig } from '../src/shared/protocol';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'roundtable-e2e-gr-'));
@@ -28,9 +31,9 @@ execFileSync('git', ['init', '-q'], { cwd: root });
 const profile = detectProject(root);
 console.log('profile:', { typescript: profile.typescript, tsc: profile.tools.tsc, pm: profile.packageManager });
 
-const claudePath = [path.join(os.homedir(), '.local/bin/claude')].find((p) => fs.existsSync(p));
 const env: Record<string, string | undefined> = { ...process.env };
 delete env.ANTHROPIC_API_KEY;
+console.log('claude cli:', findCli({ names: ['claude'] }));
 
 const kit: AgentConfig = {
   id: 'kit',
@@ -85,7 +88,7 @@ room = new Room(
     },
     createSession: (config, roster) =>
       getProvider(config.provider).createSession(config, roster, {
-        claudePath,
+        cliPath: findCli({ names: ['claude'] }),
         env,
         resumeId: undefined,
         guardrails: runtime,

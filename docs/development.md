@@ -10,7 +10,13 @@ npm run preview        # webview in a browser with fake data: http://localhost:5
 npm run e2e            # live two-agent Claude debate (cents)
 npm run e2e:guardrails # live guardrail hooks on a scratch TS project (cents)
 npm run e2e:providers  # one DM turn per signed-in provider (cents each)
+npm run package        # build the .vsix (vendor SDK JS bundled, no vendor binaries)
+npm run check:package  # file list vs package-manifest.txt, denylist, 25 MB cap
+npm run check:vsix     # import the vendor bundles from the extracted .vsix
+npm run release -- X.Y.Z  # bump, changelog, commit, tag (see docs/release.md)
 ```
+
+Optional git hook that scans fixtures for secrets before a commit: `git config core.hooksPath scripts/githooks`.
 
 Press **F5** in VS Code to launch the Extension Development Host.
 
@@ -46,6 +52,17 @@ scripts/                e2e scripts, preview harness, static server
 docs/
 test/
 ```
+
+## Build output
+
+`esbuild.mjs` produces:
+
+- `dist/extension.js` — the extension host (CommonJS; only `vscode` is external).
+- `dist/webview/main.js|css` — the React UI.
+- `dist/vendor/{claude,codex,copilot}.mjs` — the vendor SDKs as ESM bundles (ESM so their `import.meta.url` keeps working). Their platform binary packages are externals that are never loaded, because every adapter passes an explicit executable path (`pathToClaudeCodeExecutable`, `codexPathOverride`, `RuntimeConnection.forStdio`). `src/providers/vendorLoader.ts` imports them at runtime; `src/providers/cli.ts` finds the CLIs.
+- The Copilot SDK's optional native FFI dependency (`koffi`) is replaced by a stub (`scripts/stubs/koffi.mjs`): it is only used for an in-process runtime host, and Roundtable always drives the `copilot` CLI over stdio.
+
+The whole package is about 1 MB. `scripts/check-package.mjs` keeps it that way.
 
 ## Data flow
 

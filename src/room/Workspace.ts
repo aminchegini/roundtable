@@ -23,13 +23,17 @@ export interface WorkspaceDeps {
   /** Directory for worktrees. */
   storageDir: string;
   env(): Promise<Record<string, string | undefined>>;
-  claudePath: string | undefined;
+  /** User-configured vendor executables (settings); empty = auto-detect. */
+  configuredPaths?(): Partial<Record<ProviderId, string>>;
   defaults(): { maxRounds: number };
   log(text: string): void;
   warn(text: string): void;
 }
 
 const ROOMS_KEY = 'roundtable.rooms';
+const SCHEMA_KEY = 'roundtable.schemaVersion';
+/** Bump when stored room/agent shapes change; migrate in Workspace.open. */
+export const SCHEMA_VERSION = 1;
 const AGENTS_KEY = 'roundtable.agents';
 const LEGACY_SNAPSHOT_KEY = 'roundtable.snapshot';
 const LEGACY_SESSIONS_KEY = 'roundtable.sessions';
@@ -43,8 +47,8 @@ export type WorkspaceEvent =
   | { type: 'guardrails' }
   | { type: 'activity'; roomId: string }
   | { type: 'navigate'; view: 'room' | 'guardrails' | 'help' | 'room-settings' }
-  /** A vendor rejected a turn for lack of a login. */
-  | { type: 'login-needed'; provider: ProviderId; agentName: string; reason: string; roomId: string };
+  /** A vendor rejected a turn for lack of a login, or its CLI is missing. */
+  | { type: 'login-needed'; provider: ProviderId; agentName: string; reason: string; roomId: string; kind: 'login' | 'install' };
 
 /** Everything the extension knows about one VS Code workspace: agents, rooms, guardrails, providers. */
 export class Workspace {
@@ -61,7 +65,7 @@ export class Workspace {
   private constructor(private readonly deps: WorkspaceDeps) {
     this.rooms = new RoomStore(deps.state.get<RoomStoreData>(ROOMS_KEY), (data) => void deps.state.set(ROOMS_KEY, data));
     this.rooms.onChange(() => this.notify({ type: 'rooms' }));
-    this.providers = new ProviderRegistry(() => this.env);
+    this.providers = new ProviderRegistry(() => this.env, () => deps.configuredPaths?.() ?? {});
     this.providers.onChange(() => this.notify({ type: 'providers' }));
   }
 
@@ -74,11 +78,20 @@ export class Workspace {
       await ws.registry.load(ws.agents);
     }
     await ws.migrateLegacyRoom();
+    await ws.migrateSchema();
     if (ws.rooms.list().length === 0) {
       ws.rooms.create({ name: 'General', kind: 'group', agentIds: ws.agents.map((a) => a.id) });
     }
     void ws.providers.refresh();
     return ws;
+  }
+
+  /** Forward-compatible hook: stored shapes are versioned so upgrades can migrate in one place. */
+  private async migrateSchema(): Promise<void> {
+    const stored = this.deps.state.get<number>(SCHEMA_KEY) ?? 0;
+    if (stored === SCHEMA_VERSION) return;
+    // No shape changes yet; record the version so a future migration knows where it starts.
+    await this.deps.state.set(SCHEMA_KEY, SCHEMA_VERSION);
   }
 
   /** v2 kept one unnamed room in workspace state; move it into a "General" room. */
@@ -242,7 +255,6 @@ export class Workspace {
         setSessions: (s) => deps.state.set(sessionsKey(roomId), s),
       },
       env: this.env,
-      claudePath: deps.claudePath,
       resolveCwd: (agent) => this.resolveCwd(agent),
       log: deps.log,
       emit: (event) => {
@@ -257,7 +269,8 @@ export class Workspace {
         const last = this.lastLoginPrompt.get(agent.provider) ?? 0;
         if (Date.now() - last < 60_000) return;
         this.lastLoginPrompt.set(agent.provider, Date.now());
-        this.notify({ type: 'login-needed', provider: agent.provider, agentName: agent.name, reason, roomId });
+        const status = this.providers.statusOf(agent.provider);
+        this.notify({ type: 'login-needed', provider: agent.provider, agentName: agent.name, reason, roomId, kind: status && !status.installed ? 'install' : 'login' });
         void this.providers.refresh();
       },
     });

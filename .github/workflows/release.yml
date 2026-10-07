@@ -1,0 +1,82 @@
+name: Release
+
+# Pushing a v* tag builds the .vsix, verifies it, publishes to the VS Code
+# Marketplace and Open VSX, and attaches it to a GitHub Release. Publishing
+# runs in the "marketplace" environment so it waits for a reviewer.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      vsix: ${{ steps.pkg.outputs.vsix }}
+      prerelease: ${{ steps.pkg.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run check:fixtures
+      - run: npm test
+      - run: npm run build
+      - run: npm run check:package
+      - run: npm run package
+      - id: pkg
+        run: |
+          vsix=$(ls roundtable-*.vsix)
+          echo "vsix=$vsix" >> "$GITHUB_OUTPUT"
+          # The manifest's preview flag decides the Marketplace channel.
+          if node -e 'process.exit(require("./package.json").preview ? 0 : 1)'; then echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
+          test "$(node -p 'require("./package.json").version')" = "${GITHUB_REF_NAME#v}" || { echo "tag $GITHUB_REF_NAME does not match package.json version"; exit 1; }
+      - run: npm run check:package
+      - run: npm run check:vsix -- --no-live
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix
+          path: ${{ steps.pkg.outputs.vsix }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: marketplace
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: vsix
+      - name: Publish to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          flag=""
+          [ "${{ needs.build.outputs.prerelease }}" = "true" ] && flag="--pre-release"
+          npx vsce publish $flag --no-dependencies --packagePath "${{ needs.build.outputs.vsix }}"
+      - name: Publish to Open VSX
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          flag=""
+          [ "${{ needs.build.outputs.prerelease }}" = "true" ] && flag="--pre-release"
+          npx ovsx publish $flag "${{ needs.build.outputs.vsix }}" -p "$OVSX_PAT"
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          notes=$(awk -v v="## $version" 'index($0, v)==1 {p=1; next} /^## /{if(p) exit} p' CHANGELOG.md)
+          [ -n "$notes" ] || notes="See CHANGELOG.md."
+          pre=""; [ "${{ needs.build.outputs.prerelease }}" = "true" ] && pre="--prerelease"
+          gh release create "$GITHUB_REF_NAME" "${{ needs.build.outputs.vsix }}" --title "Roundtable $version" --notes "$notes" $pre

@@ -9,6 +9,7 @@ import { geminiApprovalMode } from '../src/providers/gemini';
 import { modePrompt } from '../src/providers/shared';
 import { claudePermissionMode } from '../src/room/SdkAgentSession';
 import { isResumeError, isSessionError } from '../src/providers/shared';
+import { _setCliSearchDirsForTests, findCli, resetCliCache } from '../src/providers/cli';
 import { applyGeminiEvent, type TurnAcc } from '../src/providers/gemini';
 import { PROVIDERS, ProviderRegistry } from '../src/providers/registry';
 import { isAuthError, type Provider } from '../src/providers/types';
@@ -57,6 +58,7 @@ const fakeProvider: Provider = {
   costUsd: false,
   defaultModel: 'fake-1',
   loginCommand: 'fake login',
+  installCommand: 'fake install',
   staticModels: [{ id: 'fake-1', label: 'fake' }],
   detect: async () => ({ installed: true, authenticated: true, detail: 'fake', setupHint: '' }),
   createSession: (agent) => new FakeSession(agent),
@@ -78,7 +80,6 @@ async function openWorkspace(root: string | undefined, state = new MemoryKV()) {
     globalState: new MemoryKV(),
     storageDir: path.join(os.tmpdir(), 'rt-storage'),
     env: async () => ({}),
-    claudePath: undefined,
     defaults: () => ({ maxRounds: 3 }),
     log: () => undefined,
     warn: () => undefined,
@@ -223,6 +224,45 @@ describe('Workspace', () => {
       expect(prompts.get(kit.name)![1]).toMatch(/\[Definition of done\]/);
       expect(c.state().messages.at(-1)!.text).toBe('Changed a.ts.\nDoD: tests pass');
       ws.dispose();
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe('cli discovery', () => {
+  it('prefers a configured path, then searches known dirs, and caches misses until reset', () => {
+    const dir = tmpdir();
+    const bin = path.join(dir, 'codex');
+    fs.writeFileSync(bin, '#!/bin/sh\n', { mode: 0o755 });
+    const original = process.env.PATH;
+    process.env.PATH = '';
+    try {
+      _setCliSearchDirsForTests([dir]);
+      expect(findCli({ names: ['codex'] })).toBe(bin);
+      expect(findCli({ names: ['nope', 'codex'] })).toBe(bin);
+      expect(findCli({ names: ['gemini'] })).toBeUndefined();
+      expect(findCli({ names: ['gemini'], configured: bin })).toBe(bin);
+      expect(findCli({ names: ['gemini'], configured: '/definitely/missing' })).toBeUndefined();
+      fs.writeFileSync(path.join(dir, 'gemini'), '#!/bin/sh\n', { mode: 0o755 });
+      expect(findCli({ names: ['gemini'] })).toBeUndefined(); // cached miss
+      resetCliCache();
+      _setCliSearchDirsForTests([dir]);
+      expect(findCli({ names: ['gemini'] })).toBe(path.join(dir, 'gemini'));
+    } finally {
+      process.env.PATH = original;
+      _setCliSearchDirsForTests(undefined);
+    }
+  });
+
+  it('provider views carry install and login commands and the resolved cli', async () => {
+    const restore = patchProvider();
+    try {
+      const registry = new ProviderRegistry(() => ({}));
+      await registry.refresh();
+      const view = registry.views().find((v) => v.id === 'cursor')!;
+      expect(view.installCommand).toBe('fake install');
+      expect(view.loginCommand).toBe('fake login');
     } finally {
       restore();
     }

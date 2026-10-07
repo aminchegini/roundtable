@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+_Nothing yet._
+
+## 0.4.0 — 2026-10-07 (pre-release)
+
+- **Packaging:** the extension no longer bundles vendor CLI binaries. It is one ~1 MB package for every OS and runs the `claude`, `codex`, `gemini`, `copilot` and `agent` CLIs you install. Missing CLIs get an **Install** button next to **Sign in**; `roundtable.<vendor>Path` settings override auto-detection.
+- Marketplace readiness: `preview` flag, workspace-only extension kind, trusted-workspace requirement, manifest and size gates in CI, release workflow publishing to the VS Code Marketplace and Open VSX from a tag.
+
 - Modes: build / plan / ask per agent, and a room mode that overrides every agent; ask and plan enforced with each vendor's read-only control plus a mode prompt.
 - Pause / resume the debate; skip one agent's turn from its chip.
 - Last-message previews in the room switcher and sidebar tree; jump-to-latest button in the transcript.

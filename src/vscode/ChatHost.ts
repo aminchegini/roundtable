@@ -8,6 +8,7 @@ export interface ChatHostActions {
   openDoc(doc: string): void;
   refreshProviders(): Promise<void>;
   login(provider: string): void;
+  install(provider: string): void;
 }
 
 /**
@@ -181,6 +182,9 @@ export class ChatHost implements vscode.Disposable {
         return;
       case 'login':
         this.actions.login(m.provider);
+        return;
+      case 'install':
+        this.actions.install(m.provider);
         return;
     }
   }

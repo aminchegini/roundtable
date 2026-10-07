@@ -2,12 +2,14 @@
 
 Roundtable runs agents through each vendor's own agent runtime, on your machine, with the login you already have. No keys are copied anywhere.
 
+**Nothing vendor-specific ships inside the extension.** The package (~1 MB) holds Roundtable plus the vendors' JavaScript SDKs; the CLIs themselves — `claude`, `codex`, `gemini`, `copilot`, `agent` — are the ones you install. That keeps the extension small and identical on every platform, and it means an agent only works when its CLI is present. Roundtable looks on `PATH`, in `~/.local/bin`, npm/pnpm/bun/Homebrew global directories, and in your login shell's `PATH`; `roundtable.<vendor>Path` settings override the search. Missing CLIs show an **Install** button that runs the vendor's install command in a terminal.
+
 | Provider | Runtime | Sign-in | Guardrail enforcement | Cost figure |
 | --- | --- | --- | --- | --- |
-| **Claude** (Anthropic) | Claude Agent SDK (bundled CLI) | Claude Code login, or an API key via **Roundtable: Set API Key** | **Full** — in-process PreToolUse/PostToolUse/Stop hooks, approval prompts in the room | USD estimate |
-| **Codex** (OpenAI) | `@openai/codex-sdk` (bundled `codex exec`) | `codex login` (ChatGPT), or `CODEX_API_KEY` | Gates after each turn | tokens |
-| **Gemini** (Google) | Gemini CLI, headless `gemini -p … -o stream-json` | `gemini` once (Google), or `GEMINI_API_KEY` | Gates after each turn | tokens |
-| **Copilot** (GitHub) | `@github/copilot-sdk` (bundled runtime) | `copilot login`, `gh auth`, or `COPILOT_GITHUB_TOKEN` | **Full** — in-process PreToolUse hook, approval prompts in the room | tokens |
+| **Claude** (Anthropic) | Claude Agent SDK driving your `claude` CLI | Claude Code login, or an API key via **Roundtable: Set API Key** | **Full** — in-process PreToolUse/PostToolUse/Stop hooks, approval prompts in the room | USD estimate |
+| **Codex** (OpenAI) | `@openai/codex-sdk` driving your `codex` CLI | `codex login` (ChatGPT), or `CODEX_API_KEY` | Gates after each turn | tokens |
+| **Gemini** (Google) | your `gemini` CLI, headless `-p … -o stream-json` | `gemini` once (Google), or `GEMINI_API_KEY` | Gates after each turn | tokens |
+| **Copilot** (GitHub) | `@github/copilot-sdk` driving your `copilot` CLI | `copilot login`, `gh auth`, or `COPILOT_GITHUB_TOKEN` | **Full** — in-process PreToolUse hook, approval prompts in the room | tokens |
 | **Cursor agent** | `agent -p … --output-format stream-json` | `agent login`, or `CURSOR_API_KEY` | Gates after each turn | — (experimental) |
 
 "Gates after each turn" means: the agent's edits are tracked from its own events, and when it finishes a turn Roundtable runs the enabled Stop gates (typecheck, lint, tests, secrets, boundaries, ADR, definition of done). A failing gate becomes a follow-up message to the same session, at most twice, then the agent is let through and a system message names the unmet gate. PreToolUse blocks (shell safety, protected paths, review/spec locks) are **not** enforced for these vendors in this version; the prompt still tells the agent the rules.
@@ -16,11 +18,11 @@ Roundtable runs agents through each vendor's own agent runtime, on your machine,
 
 **Roundtable: Refresh Providers** (or **Re-check providers** in Help) re-runs detection:
 
-- Claude: `~/.claude/.credentials.json` or `ANTHROPIC_API_KEY`.
-- Codex: `~/.codex/auth.json` or `CODEX_API_KEY`. The default model comes from `~/.codex/config.toml`.
-- Gemini: `gemini` on PATH, `~/.gemini/oauth_creds.json` or `GEMINI_API_KEY`.
-- Copilot: starts the bundled runtime and asks it (`getAuthStatus`, `listModels`). Takes a few seconds the first time.
-- Cursor: `agent` or `cursor-agent` on PATH, then `agent --list-models` (the account's models are the sign-in test).
+- Claude: `claude` CLI found, then `~/.claude/.credentials.json` / `~/.claude.json` login or `ANTHROPIC_API_KEY`.
+- Codex: `codex` CLI found, then `~/.codex/auth.json` or `CODEX_API_KEY`. The default model comes from `~/.codex/config.toml`.
+- Gemini: `gemini` CLI found, then `~/.gemini/oauth_creds.json` or `GEMINI_API_KEY`.
+- Copilot: `copilot` CLI found, then the runtime is asked (`getAuthStatus`, `listModels`). Takes a few seconds the first time.
+- Cursor: `agent` or `cursor-agent` CLI found, then `agent --list-models` (the account's models are the sign-in test).
 
 Agents whose provider is unavailable are shown greyed in the tree, roster and Welcome card, with the setup hint. They still exist; fix the login and re-check.
 

@@ -208,6 +208,7 @@ export class SdkAgentSession implements AgentSession {
   }
 
   private async start(): Promise<void> {
+    if (!this.ctx.cliPath) throw new Error('Claude Code CLI not found. Install it (npm install -g @anthropic-ai/claude-code) or set roundtable.claudePath.');
     const sdk = this.sdk;
     const config = this.config;
     const roster = this.roster;
@@ -262,7 +263,7 @@ export class SdkAgentSession implements AgentSession {
       includePartialMessages: true,
       cwd,
       env: this.ctx.env,
-      pathToClaudeCodeExecutable: this.ctx.claudePath,
+      pathToClaudeCodeExecutable: this.ctx.cliPath,
       resume: this.sessionId,
       abortController: (this.abort = new AbortController()),
       canUseTool: (toolName, input, opts) => this.canUseTool(toolName, input, opts.signal, opts.suggestions),

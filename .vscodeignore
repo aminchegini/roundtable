@@ -1,0 +1,28 @@
+# What stays OUT of the .vsix. CI compares `vsce ls` against package-manifest.txt,
+# so any change to the shipped file list is reviewed in the PR.
+#
+# Ships: package.json, README.md, CHANGELOG.md, LICENSE, DISCLAIMER.md,
+#        media/icon.png, media/icon.svg, dist/** (host, webview, vendor bundles)
+
+.vscode/**
+.github/**
+.roundtable/**
+.claude/**
+.gitignore
+.vscodeignore
+src/**
+test/**
+scripts/**
+webview/**
+docs/**
+media/icon-color.svg
+esbuild.mjs
+tsconfig.json
+package-lock.json
+package-manifest.txt
+CONTRIBUTING.md
+*.vsix
+node_modules/**
+dist/e2e*.mjs
+dist/record-fixture.mjs
+dist/**/*.map

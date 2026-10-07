@@ -188,9 +188,9 @@ function Welcome({ state, onAction }: { state: State; onAction(action: 'guardrai
                   {bad && (
                     <div className="warn-text">
                       ⚠ {p?.detail}. {p?.setupHint}{' '}
-                      {p?.installed && (
-                        <button className="small" onClick={() => post({ type: 'login', provider: p.id })}>
-                          Sign in
+                      {p && (
+                        <button className="small" onClick={() => post({ type: p.installed ? 'login' : 'install', provider: p.id })}>
+                          {p.installed ? 'Sign in' : 'Install'}
                         </button>
                       )}
                     </div>

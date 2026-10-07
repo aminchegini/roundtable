@@ -12,11 +12,12 @@ npm run build
 npm test
 ```
 
-Press **F5** in VS Code to launch the Extension Development Host. `npm run preview` opens the webview in a browser with fake data so you can iterate on UI without any agent running.
+Press **F5** in VS Code to launch the Extension Development Host. `npm run preview` opens the webview in a browser with fake data so you can iterate on UI without any agent running. `git config core.hooksPath scripts/githooks` enables the pre-commit secret scan for recorded fixtures.
 
 ## Before you open a pull request
 
 - `npm run typecheck`, `npm test` and `npm run build` pass.
+- If the set of shipped files changes, run `npm run check:package -- --update` and commit `package-manifest.txt` so the change is visible in review.
 - New behaviour has a unit test. Scheduler, guardrail hooks, room store and provider event parsers are all tested without network access — see `test/` for the patterns.
 - If you touched a provider, say in the PR which live checks you ran (`npm run e2e:providers codex`, for instance) or that you could not.
 - Keep the change focused. Formatting-only changes to files you did not otherwise touch make review harder.

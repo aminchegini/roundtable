@@ -30,8 +30,8 @@ export interface SessionContext {
   guardrails?: SessionGuardrails;
   /** Mode in force for this agent (room override applied). Read at session start/restart. */
   mode?(): InteractionMode;
-  /** Claude only: path to the Claude Code executable. */
-  claudePath?: string;
+  /** The vendor CLI this session must run (Roundtable ships no vendor binaries). */
+  cliPath: string | undefined;
   onEvent(event: SessionEvent): void;
   requestPermission(
     toolName: string,
@@ -48,6 +48,8 @@ export function isAuthError(text: string): boolean {
 
 export interface ProviderStatus {
   installed: boolean;
+  /** Executable found for this vendor. */
+  cliPath?: string;
   authenticated: boolean | 'unknown';
   detail: string;
   setupHint: string;
@@ -66,7 +68,9 @@ export interface Provider {
   defaultModel: string;
   /** Shell command that signs the user in interactively (run in a VS Code terminal). */
   loginCommand: string;
+  /** Shell command that installs the vendor CLI (run in a VS Code terminal). */
+  installCommand: string;
   staticModels: ModelOption[];
-  detect(env: Record<string, string | undefined>): Promise<ProviderStatus>;
+  detect(env: Record<string, string | undefined>, configuredPath: string | undefined): Promise<ProviderStatus>;
   createSession(agent: AgentConfig, roster: AgentConfig[], ctx: SessionContext): AgentSession;
 }
