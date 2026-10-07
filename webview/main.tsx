@@ -59,10 +59,14 @@ function App() {
         ) : (
           <>
             <Transcript state={state} byId={byId} names={names} onWelcomeAction={setView} />
-            {roomState?.spec?.status === 'pending' && <SpecCard spec={roomState.spec} names={names} />}
-            {roomState?.permissions.map((p) => (
-              <PermissionCard key={p.requestId} request={p} agent={byId.get(p.agentId)} />
-            ))}
+            {((roomState?.spec?.status === 'pending') || (roomState?.permissions.length ?? 0) > 0) && (
+              <div className="cards">
+                {roomState?.spec?.status === 'pending' && <SpecCard spec={roomState.spec} names={names} />}
+                {roomState?.permissions.map((p) => (
+                  <PermissionCard key={p.requestId} request={p} agent={byId.get(p.agentId)} />
+                ))}
+              </div>
+            )}
             {roomState && <Composer state={state} room={room} onView={setView} />}
           </>
         )}

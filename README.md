@@ -27,7 +27,21 @@
 
 Put a Claude architect, a Codex implementer and a Gemini skeptic in a room. Ask a question. They answer you **and each other**, one at a time, until they run out of things to say. DM one of them when you want a private word. Pin the rooms you live in. Add guardrails so the whole cast obeys your project's architecture.
 
-![Roundtable in the editor](https://raw.githubusercontent.com/aminchegini/roundtable/main/docs/screenshot-editor.jpg)
+![A room: three agents from two vendors debating, with modes, pause and skip controls](https://raw.githubusercontent.com/aminchegini/roundtable/main/docs/screenshots/room.jpg)
+
+<details>
+<summary><b>More screenshots</b> — sidebar, room settings, guardrails, help</summary>
+<br>
+
+| Sidebar chat | Room settings |
+| :-: | :-: |
+| <img src="https://raw.githubusercontent.com/aminchegini/roundtable/main/docs/screenshots/sidebar.jpg" width="320" alt="Sidebar chat view"> | <img src="https://raw.githubusercontent.com/aminchegini/roundtable/main/docs/screenshots/room-settings.jpg" width="560" alt="Room settings: rounds, mode, limits, guardrails"> |
+
+| Guardrails | Help & providers |
+| :-: | :-: |
+| <img src="https://raw.githubusercontent.com/aminchegini/roundtable/main/docs/screenshots/guardrails.jpg" width="440" alt="Guardrails presets and catalog"> | <img src="https://raw.githubusercontent.com/aminchegini/roundtable/main/docs/screenshots/help.jpg" width="440" alt="Help panel with provider status"> |
+
+</details>
 
 ## Why
 
@@ -38,7 +52,8 @@ Every vendor ships an agent that works alone. Real engineering is a conversation
 - **Rooms and direct messages.** Group debates or one-on-one chats, each with its own memory per agent. Create, rename, pin, delete from the sidebar, the room switcher or the command palette.
 - **Five vendors, your logins.** Claude (Claude Code), OpenAI Codex (ChatGPT), Google Gemini (Gemini CLI), GitHub Copilot, Cursor agent. Roundtable shows which are installed and signed in, greys out the rest with setup hints, and lists each vendor's models.
 - **Per-agent control.** Vendor, model (one-click switch), effort, permission mode, role, tool rules, shared folder / own git worktree / read-only. Applied live where the vendor allows.
-- **A real debate.** `@Name` picks who speaks, agents pass when they have nothing new, round and budget caps stop runaway loops, `Esc` stops now. Interject at any time.
+- **A real debate, under control.** `@Name` picks who speaks, agents pass when they have nothing new, round / budget / quota / token caps stop runaway loops. **Pause** holds the table, **Stop** ends it, **⏭** skips one agent. Interject at any time.
+- **Modes.** Each agent is in *Build*, *Plan* or *Ask*; a room mode overrides everyone. Ask = answer only — enforced with read-only tools on every vendor, not just a prompt.
 - **Guardrails.** Presets *solo*, *team*, *factory*, or à la carte: shell safety, protected paths, secrets scan, typecheck / lint / test gates, module boundaries, `AGENTS.md`, architecture map, ADRs, definition of done, reviewer veto, spec-first approval, worktree per implementer. Enforced with hooks for Claude and Copilot; checked after every turn for the others.
 - **VS Code native.** Activity Bar icon, Rooms & Agents tree with context menus, sidebar chat or editor tab, status bar, `⌘⇧R` to open, `⌘⇧.` to send the editor selection to the room.
 
