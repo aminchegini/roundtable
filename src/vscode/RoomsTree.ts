@@ -65,16 +65,20 @@ export class RoomsTree implements vscode.TreeDataProvider<TreeNode>, vscode.Disp
       const active = this.workspace.rooms.activeRoomId === room.id;
       const item = new vscode.TreeItem(room.name);
       const names = room.agentIds.map((id) => this.workspace.agents.find((a) => a.id === id)?.name ?? '?');
-      item.description = activity.running
-        ? `${activity.speaker ?? '…'} speaking`
-        : activity.pending > 0
-          ? `${activity.pending} approval${activity.pending > 1 ? 's' : ''} waiting`
-          : room.kind === 'dm'
-            ? 'DM'
-            : `${names.length} agents`;
-      item.tooltip = `${room.kind === 'dm' ? 'Direct message with' : 'Room with'} ${names.join(', ') || 'nobody yet'}`;
+      const preview = room.lastMessage ? `${room.lastMessage.from ? `${room.lastMessage.from}: ` : ''}${room.lastMessage.text.replace(/\s+/g, ' ').slice(0, 60)}` : undefined;
+      const modeTag = room.mode ? ` · ${room.mode}` : '';
+      item.description = activity.paused
+        ? `paused${modeTag}`
+        : activity.running
+          ? `${activity.speaker ?? '…'} speaking${modeTag}`
+          : activity.pending > 0
+            ? `${activity.pending} approval${activity.pending > 1 ? 's' : ''} waiting`
+            : (preview ?? (room.kind === 'dm' ? 'DM' : `${names.length} agents`)) + modeTag;
+      item.tooltip = new vscode.MarkdownString(
+        `**${room.name}** — ${room.kind === 'dm' ? 'direct message with' : 'room with'} ${names.join(', ') || 'nobody yet'}${room.mode ? `\n\nMode: ${room.mode} (overrides agents)` : ''}${room.lastMessage ? `\n\n_${room.lastMessage.from || 'system'}:_ ${room.lastMessage.text}` : ''}`,
+      );
       item.iconPath = new vscode.ThemeIcon(
-        activity.running ? 'sync~spin' : room.kind === 'dm' ? 'comment' : 'comment-discussion',
+        activity.paused ? 'debug-pause' : activity.running ? 'sync~spin' : room.kind === 'dm' ? 'comment' : 'comment-discussion',
         active ? new vscode.ThemeColor('focusBorder') : undefined,
       );
       item.contextValue = `${room.kind}${room.pinned ? '-pinned' : ''}`;
@@ -85,7 +89,7 @@ export class RoomsTree implements vscode.TreeDataProvider<TreeNode>, vscode.Disp
     const item = new vscode.TreeItem(agent.name);
     const provider = this.workspace.providers.views().find((p) => p.id === agent.provider);
     const unavailable = provider && (!provider.installed || provider.authenticated === false);
-    item.description = `${provider?.title ?? agent.provider} · ${agent.model}${agent.reviewer ? ' · reviewer' : ''}${unavailable ? ' · unavailable' : ''}`;
+    item.description = `${provider?.title ?? agent.provider} · ${agent.model}${agent.mode && agent.mode !== 'build' ? ` · ${agent.mode}` : ''}${agent.reviewer ? ' · reviewer' : ''}${unavailable ? ' · unavailable' : ''}`;
     item.tooltip = new vscode.MarkdownString(
       `**${agent.name}** — ${provider?.title ?? agent.provider} ${agent.model}\n\n${agent.role || '_no role_'}\n\n${unavailable ? `⚠ ${provider?.detail}` : (provider?.detail ?? '')}`,
     );

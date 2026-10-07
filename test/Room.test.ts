@@ -229,6 +229,57 @@ describe('Room', () => {
     expect(room.status.stopReason).toBe('all-failed');
   });
 
+  it('pause holds the debate after the current turn; resume continues', async () => {
+    const forever = Array.from({ length: 10 }, (_, i) => `m${i}`);
+    const { room, speakers } = setup({ Ada: [...forever], Rex: [...forever] }, { maxRounds: 3 });
+    room.postUserMessage('go');
+    await Promise.resolve();
+    room.pause();
+    // Let plenty of microtasks run: with the gate closed, at most the in-flight turn completes.
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+    const whilePaused = speakers().length;
+    expect(room.status.paused).toBe(true);
+    expect(room.status.running).toBe(true);
+    expect(whilePaused).toBeLessThanOrEqual(2);
+    room.resume();
+    await room.whenIdle();
+    expect(room.status.paused).toBe(false);
+    expect(speakers().length).toBe(1 + 6);
+  });
+
+  it('skipping an agent interrupts its turn, discards the reply, and skips it this round', async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const room = new Room(
+      {
+        getCaps: () => ({ maxRounds: 1, limits: { ...DEFAULT_LIMITS, allowApi: true } }),
+        emit: () => undefined,
+        createSession: (c) => {
+          const s = new FakeSession([`${c.name} says hi`]);
+          if (c.name === 'Ada') {
+            const run = s.runTurn.bind(s);
+            s.runTurn = async (p) => {
+              await gate;
+              return run(p);
+            };
+            s.interrupt = async () => release?.();
+          }
+          return s;
+        },
+      },
+      [config('Ada'), config('Rex')],
+    );
+    room.postUserMessage('hi');
+    await Promise.resolve();
+    await room.skipAgent('ada');
+    await room.whenIdle();
+    const texts = room.transcript.map((m) => m.text);
+    expect(texts).toContain('Ada skipped this round.');
+    expect(texts).not.toContain('Ada says hi');
+    expect(texts).toContain('Rex says hi');
+    expect(room.transcript.some((m) => /failed/.test(m.text))).toBe(false);
+  });
+
   it('discards the active reply when stopped', async () => {
     let release: (() => void) | undefined;
     const gate = new Promise<void>((r) => (release = r));

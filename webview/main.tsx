@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import type { AgentView, RoomMeta, RoomStatus } from '../src/shared/protocol';
+import { MODES, MODE_HINTS, MODE_LABELS, type AgentView, type InteractionMode, type RoomMeta, type RoomStatus } from '../src/shared/protocol';
 import { Drawer, Guardrails, Help, ProviderBadge, available, providerOf } from './panels';
 import { PermissionCard, SpecCard, Transcript } from './room';
 import { RoomSettings } from './settings';
@@ -139,12 +139,28 @@ function Header(props: {
             {room?.pinned && <span className="tag">pinned</span>}
           </span>
         )}
+        {view === 'room' && room && (
+          <select
+            className="mode-select"
+            title={room.mode ? `Room mode: ${MODE_LABELS[room.mode]} — overrides every agent here. ${MODE_HINTS[room.mode]}` : "Room mode: agents' own. Pick a mode to force it on every agent in this room."}
+            value={room.mode ?? ''}
+            onChange={(e) => post({ type: 'updateRoom', id: room.id, patch: { mode: (e.target.value || null) as InteractionMode | null } })}
+          >
+            <option value="">agents' own</option>
+            {MODES.map((m) => (
+              <option key={m} value={m}>
+                {MODE_LABELS[m]}
+              </option>
+            ))}
+          </select>
+        )}
         {view === 'room' && status && (
           <>
             <span className="meter" title="Debate rounds since your last message">
               {Math.min(status.round + (status.running ? 1 : 0), status.maxRounds)}/{status.maxRounds}
             </span>
             <BillingMeter status={status} tokensOnly={hasTokensOnly} />
+            {status.paused && <span className="badge paused">paused</span>}
             {status.locks?.spec && <span className="badge">{status.locks.spec}</span>}
             {status.locks?.review && <span className="badge">{status.locks.review}</span>}
           </>
@@ -157,9 +173,18 @@ function Header(props: {
         ) : (
           <>
             {status?.running && (
-              <button className="danger small" onClick={() => post({ type: 'stop' })}>
-                Stop
-              </button>
+              <>
+                <button
+                  className="secondary small"
+                  title={status.paused ? 'Resume: agents continue from where they stopped' : 'Pause: the current agent finishes, then the debate waits for you'}
+                  onClick={() => post({ type: status.paused ? 'resume' : 'pause' })}
+                >
+                  {status.paused ? '▶ Resume' : '⏸ Pause'}
+                </button>
+                <button className="danger small" title="Stop: interrupt the speaking agent and end this debate" onClick={() => post({ type: 'stop' })}>
+                  Stop
+                </button>
+              </>
             )}
             <button className="ghost small" title="Room settings: rounds, limits, guardrails" onClick={() => props.onView('room-settings')}>
               ⚙
@@ -181,17 +206,24 @@ function Header(props: {
       {view === 'room' && room && (
         <div className="header-row participants">
           {agents.map((a) => (
-            <button
-              key={a.config.id}
-              className={`chip ${a.status} ${a.benched ? 'benched' : ''}`}
-              title={`${a.config.name} · ${a.config.model}${a.benched ? ` — sitting out: ${benchText(a.benched)}` : ''} — click for settings`}
-              onClick={() => props.onEditAgent(a.config.id)}
-            >
-              <span className="dot" style={{ background: a.config.color }} />
-              {a.config.name}
-              <ProviderBadge provider={providerOf(state.providers, a.config.provider)} />
-              {a.benched && <span className="bench">⏸</span>}
-            </button>
+            <span key={a.config.id} className={`chip ${a.status} ${a.benched ? 'benched' : ''}`}>
+              <button
+                className="chip-main"
+                title={`${a.config.name} · ${a.config.model} · ${MODE_LABELS[a.mode]} mode${a.benched ? ` — sitting out: ${benchText(a.benched)}` : ''} — click for settings`}
+                onClick={() => props.onEditAgent(a.config.id)}
+              >
+                <span className="dot" style={{ background: a.config.color }} />
+                {a.config.name}
+                <ProviderBadge provider={providerOf(state.providers, a.config.provider)} />
+                {a.mode !== 'build' && <span className="mode-tag">{a.mode}</span>}
+                {a.benched && <span className="bench">⏸</span>}
+              </button>
+              {a.status === 'speaking' && (
+                <button className="chip-skip" title={`Stop ${a.config.name}'s turn and skip it this round`} onClick={() => post({ type: 'skipAgent', id: a.config.id })}>
+                  ⏭
+                </button>
+              )}
+            </span>
           ))}
           {room.kind === 'group' && (
             <button className="chip add" title="Add or remove participants" onClick={() => setMenu(menu === 'participants' ? 'none' : 'participants')}>
@@ -291,10 +323,18 @@ function RoomMenu({ state, onClose }: { state: State; onClose(): void }) {
   const groups = rooms.filter((r) => r.kind === 'group');
   const dms = rooms.filter((r) => r.kind === 'dm');
   const item = (r: RoomMeta) => (
-    <button key={r.id} className={`ghost ${r.id === state.rooms.activeRoomId ? 'active' : ''}`} onClick={() => { post({ type: 'switchRoom', id: r.id }); onClose(); }}>
-      {r.pinned ? '📌 ' : ''}
-      {r.name}
-      <span className="hint"> · {r.kind === 'dm' ? 'DM' : `${r.agentIds.length}`}</span>
+    <button key={r.id} className={`ghost room-item ${r.id === state.rooms.activeRoomId ? 'active' : ''}`} onClick={() => { post({ type: 'switchRoom', id: r.id }); onClose(); }}>
+      <span className="room-item-title">
+        {r.pinned ? '📌 ' : ''}
+        {r.name}
+        <span className="hint"> · {r.kind === 'dm' ? 'DM' : `${r.agentIds.length}`}{r.mode ? ` · ${r.mode}` : ''}</span>
+      </span>
+      {r.lastMessage && (
+        <span className="room-item-preview">
+          {r.lastMessage.from ? `${r.lastMessage.from}: ` : ''}
+          {r.lastMessage.text.replace(/\s+/g, ' ')}
+        </span>
+      )}
     </button>
   );
   return (
@@ -393,6 +433,7 @@ function agentBilling(a: AgentView): string {
 
 function Roster(props: { agents: AgentView[]; state: State; selected: string | undefined; onSelect(id: string | undefined): void }) {
   const { state } = props;
+  const room = state.rooms.rooms.find((r) => r.id === state.rooms.activeRoomId);
   return (
     <aside className="roster">
       <div className="roster-title">In this room</div>
@@ -415,6 +456,26 @@ function Roster(props: { agents: AgentView[]; state: State; selected: string | u
                 </span>
               </span>
             </button>
+            <div className="agent-controls">
+              <select
+                className="agent-mode"
+                title={`Mode for ${a.config.name}: ${MODE_HINTS[a.config.mode ?? 'build']}${room?.mode ? ` (room mode ${room.mode} currently overrides it)` : ''}`}
+                value={a.config.mode ?? 'build'}
+                disabled={!!room?.mode}
+                onChange={(e) => post({ type: 'saveAgent', config: { ...a.config, mode: e.target.value as InteractionMode } })}
+              >
+                {MODES.map((m) => (
+                  <option key={m} value={m}>
+                    {MODE_LABELS[m]}
+                  </option>
+                ))}
+              </select>
+              {a.status === 'speaking' && (
+                <button className="ghost small" title="Stop this agent's turn and skip it this round" onClick={() => post({ type: 'skipAgent', id: a.config.id })}>
+                  ⏭ skip
+                </button>
+              )}
+            </div>
             <select
               className="agent-model"
               title="Model"
@@ -468,6 +529,36 @@ function Composer({ state, room, onView }: { state: State; room: RoomMeta | unde
       case 'stop':
         post({ type: 'stop' });
         return true;
+      case 'pause':
+        post({ type: 'pause' });
+        return true;
+      case 'resume':
+        post({ type: 'resume' });
+        return true;
+      case 'skip': {
+        const agent = findAgent(arg);
+        if (agent) post({ type: 'skipAgent', id: agent.config.id });
+        return !!agent;
+      }
+      case 'mode': {
+        // /mode ask → room; /mode Rex plan → agent; /mode off → agents' own
+        const [first = '', second] = rest;
+        const asMode = (v: string) => (MODES as string[]).includes(v) ? (v as InteractionMode) : undefined;
+        if (!room) return false;
+        if (first === 'off' || first === 'own') {
+          post({ type: 'updateRoom', id: room.id, patch: { mode: null } });
+          return true;
+        }
+        const roomMode = asMode(first);
+        if (roomMode && !second) {
+          post({ type: 'updateRoom', id: room.id, patch: { mode: roomMode } });
+          return true;
+        }
+        const agent = findAgent(first);
+        const agentMode = second ? asMode(second) : undefined;
+        if (agent && agentMode) post({ type: 'saveAgent', config: { ...agent.config, mode: agentMode } });
+        return !!(agent && agentMode);
+      }
       case 'reset':
         post({ type: 'reset' });
         return true;
@@ -527,7 +618,9 @@ function Composer({ state, room, onView }: { state: State; room: RoomMeta | unde
           value={text}
           rows={narrowRows(text)}
           placeholder={
-            running
+            state.roomState?.room.paused
+              ? 'Paused — agents resume when you press ▶ · your message waits for them'
+              : running
               ? 'Interject — agents see this on their next turn · Esc stops'
               : room?.kind === 'dm'
                 ? `Message ${names[0] ?? 'the agent'}`

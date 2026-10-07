@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { getProvider, PROVIDERS } from './providers/registry';
 import { Workspace, type KeyValue } from './room/Workspace';
-import type { AgentConfig, ProviderId, RoomMeta } from './shared/protocol';
+import { MODES, MODE_HINTS, MODE_LABELS, type AgentConfig, type InteractionMode, type ProviderId, type RoomMeta } from './shared/protocol';
 import { ChatHost } from './vscode/ChatHost';
 import { RoomsTree, type TreeNode } from './vscode/RoomsTree';
 import { StatusBar } from './vscode/StatusBar';
@@ -305,6 +305,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   register('roundtable.openGuardrails', async () => {
     await showChat();
     ws.navigate('guardrails');
+  });
+  register('roundtable.pause', () => {
+    const id = ws.rooms.activeRoomId;
+    if (id) ws.controller(id)?.pause();
+  });
+  register('roundtable.resume', () => {
+    const id = ws.rooms.activeRoomId;
+    if (id) ws.controller(id)?.resume();
+  });
+  const pickMode = async (title: string, allowInherit: string | undefined): Promise<InteractionMode | null | undefined> => {
+    const items: Array<vscode.QuickPickItem & { mode: InteractionMode | null }> = MODES.map((m) => ({ label: MODE_LABELS[m], detail: MODE_HINTS[m], mode: m }));
+    if (allowInherit) items.unshift({ label: allowInherit, mode: null });
+    const pick = await vscode.window.showQuickPick(items, { title });
+    return pick ? pick.mode : undefined;
+  };
+  register('roundtable.setRoomMode', async (arg) => {
+    const room = await roomFrom(arg, 'Room mode');
+    if (!room) return;
+    const mode = await pickMode(`Mode for every agent in ${room.name}`, "Agents' own modes");
+    if (mode !== undefined) ws.updateRoom(room.id, { mode });
+  });
+  register('roundtable.setAgentMode', async (arg) => {
+    const agent = await agentFrom(arg, 'Agent mode');
+    if (!agent) return;
+    const mode = await pickMode(`Mode for ${agent.name}`, undefined);
+    if (mode) await ws.setAgentMode(agent.id, mode);
   });
   register('roundtable.roomSettings', async (arg) => {
     const room = await roomFrom(arg, 'Room settings');

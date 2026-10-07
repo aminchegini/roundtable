@@ -81,9 +81,13 @@ export class RoomStore {
   }
 
   /** Update room-level settings (limits, rounds, custom guardrails). `null` clears a field. */
-  patch(id: string, patch: { limits?: RoomMeta['limits']; maxRounds?: number | null; guardrails?: RoomMeta['guardrails'] | null; name?: string }): void {
+  patch(id: string, patch: { limits?: RoomMeta['limits']; maxRounds?: number | null; guardrails?: RoomMeta['guardrails'] | null; mode?: RoomMeta['mode'] | null; name?: string }): void {
     this.update(id, (r) => {
       const next = { ...r };
+      if (patch.mode !== undefined) {
+        if (patch.mode === null) delete next.mode;
+        else next.mode = patch.mode;
+      }
       if (patch.limits !== undefined) next.limits = patch.limits;
       if (patch.maxRounds !== undefined) {
         if (patch.maxRounds === null) delete next.maxRounds;
@@ -98,8 +102,8 @@ export class RoomStore {
     });
   }
 
-  touch(id: string): void {
-    this.update(id, (r) => ({ ...r, lastActivity: Date.now() }));
+  touch(id: string, lastMessage?: RoomMeta['lastMessage']): void {
+    this.update(id, (r) => ({ ...r, lastActivity: Date.now(), ...(lastMessage ? { lastMessage: { ...lastMessage, text: lastMessage.text.slice(0, 120) } } : {}) }));
   }
 
   remove(id: string): void {

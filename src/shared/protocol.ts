@@ -70,6 +70,8 @@ export interface AgentConfig {
   limits?: Limits;
   /** Guardrails forced on or off for this agent, on top of the room's set. */
   guardrails?: GuardrailOverrides;
+  /** How this agent may act; missing = build. A room mode overrides it. */
+  mode?: InteractionMode;
 }
 
 export interface RoomMeta {
@@ -87,6 +89,10 @@ export interface RoomMeta {
   maxRounds?: number;
   /** Custom guardrails for this room; missing = inherit the workspace file. */
   guardrails?: GuardrailsFile;
+  /** Mode forced on every agent in this room; missing = each agent's own. */
+  mode?: InteractionMode;
+  /** Preview of the latest message, for lists. */
+  lastMessage?: { from: string; text: string; ts: number };
 }
 
 export type AgentStatus = 'idle' | 'speaking' | 'error';
@@ -119,6 +125,8 @@ export interface AgentView {
   quota?: QuotaInfo[];
   /** Set when a limit keeps this agent from taking turns. */
   benched?: BenchReason;
+  /** Mode in force for this agent in this room (room override applied). */
+  mode: InteractionMode;
   /** Model reported by the live session, if it has started. */
   liveModel?: string;
 }
@@ -137,6 +145,8 @@ export type StopReason = 'all-passed' | 'max-rounds' | 'budget' | 'quota' | 'tok
 
 export interface RoomStatus {
   running: boolean;
+  /** Debate held after the current turn until resumed. */
+  paused: boolean;
   round: number;
   maxRounds: number;
   costUsd: number;
@@ -201,6 +211,21 @@ export interface Limits {
 }
 
 export const DEFAULT_LIMITS: Limits = { allowApi: false, apiBudgetUsd: 0, quotaStopPercent: 0, maxTokens: 0 };
+
+/**
+ * How an agent may act. build: full agent. plan: investigate and propose,
+ * change nothing (vendor plan mode where it exists). ask: answer only; no
+ * edits, no state-changing commands, no commits — enforced with read-only
+ * tools on every vendor plus a mode prompt.
+ */
+export type InteractionMode = 'build' | 'plan' | 'ask';
+export const MODES: InteractionMode[] = ['build', 'plan', 'ask'];
+export const MODE_LABELS: Record<InteractionMode, string> = { build: 'Build', plan: 'Plan', ask: 'Ask' };
+export const MODE_HINTS: Record<InteractionMode, string> = {
+  build: 'Full agent: reads, edits, runs commands within its permission mode and the guardrails.',
+  plan: 'Investigates and proposes a concrete plan (steps, files, risks) but changes nothing. Uses the vendor’s plan mode where it has one (Claude, Cursor, Gemini).',
+  ask: 'Answers, explains, reviews. No file edits, no state-changing commands, no commits or installs, on every vendor. Describes changes instead of making them.',
+};
 
 /** Why an agent is benched in a room right now. */
 export type BenchReason = 'api-not-allowed' | 'api-budget' | 'quota' | 'tokens' | 'provider-unavailable';
@@ -305,7 +330,10 @@ export type WebviewToHost =
   | { type: 'pinRoom'; id: string; pinned: boolean }
   | { type: 'deleteRoom'; id: string }
   | { type: 'setParticipants'; id: string; agentIds: string[] }
-  | { type: 'updateRoom'; id: string; patch: { limits?: Limits; maxRounds?: number | null; guardrails?: GuardrailsFile | null } }
+  | { type: 'updateRoom'; id: string; patch: { limits?: Limits; maxRounds?: number | null; guardrails?: GuardrailsFile | null; mode?: InteractionMode | null } }
+  | { type: 'pause' }
+  | { type: 'resume' }
+  | { type: 'skipAgent'; id: string }
   | { type: 'pinAgent'; id: string; pinned: boolean }
   | { type: 'openInEditor' }
   | { type: 'refreshProviders' }

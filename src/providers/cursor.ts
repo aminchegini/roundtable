@@ -1,6 +1,6 @@
 import type { AgentSession, TurnResult } from '../room/Room';
-import type { AgentConfig, ModelOption } from '../shared/protocol';
-import { WRITE_TOOL, buildFullPrompt, editedPathsFrom, findBin, primedInput, spawnJsonl } from './shared';
+import type { AgentConfig, InteractionMode, ModelOption } from '../shared/protocol';
+import { WRITE_TOOL, buildFullPrompt, currentMode, editedPathsFrom, findBin, primedInput, spawnJsonl } from './shared';
 import type { Provider, SessionContext } from './types';
 import { execFile } from 'node:child_process';
 
@@ -37,6 +37,14 @@ export function applyCursorEvent(acc: CursorAcc, event: Record<string, unknown>,
   }
 }
 
+/** Cursor has native ask and plan modes. */
+export function cursorModeArgs(workspaceMode: AgentConfig['workspaceMode'], permissionMode: AgentConfig['permissionMode'], mode: InteractionMode): string[] {
+  if (mode === 'ask') return ['--mode', 'ask'];
+  if (mode === 'plan') return ['--mode', 'plan'];
+  if (workspaceMode === 'read-only') return ['--mode', 'ask'];
+  return permissionMode === 'acceptEdits' || permissionMode === 'auto' ? ['--force'] : [];
+}
+
 /** One `agent -p` process per turn, chained with `--resume <chatId>`. Experimental: output format is vendor-controlled. */
 export class CursorAgentSession implements AgentSession {
   private sessionId: string | undefined;
@@ -63,8 +71,7 @@ export class CursorAgentSession implements AgentSession {
 
     const args = ['-p', '--output-format', 'stream-json', '--stream-partial-output', '--trust', '--model', this.config.model];
     if (cwd) args.push('--workspace', cwd);
-    if (this.config.workspaceMode === 'read-only') args.push('--mode', 'ask');
-    else if (this.config.permissionMode === 'acceptEdits' || this.config.permissionMode === 'auto') args.push('--force');
+    args.push(...cursorModeArgs(this.config.workspaceMode, this.config.permissionMode, currentMode(this.ctx, this.config)));
     if (this.sessionId) args.push('--resume', this.sessionId);
     args.push(input);
 

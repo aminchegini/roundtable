@@ -1,6 +1,6 @@
 import type { HookMap, ToolSpec } from '../guardrails/types';
 import type { AgentSession } from '../room/Room';
-import type { AgentConfig, Enforcement, ModelOption, ProviderId } from '../shared/protocol';
+import type { AgentConfig, Enforcement, InteractionMode, ModelOption, ProviderId } from '../shared/protocol';
 
 export type SessionEvent =
   | { type: 'partial'; text: string }
@@ -28,6 +28,8 @@ export interface SessionContext {
   /** Session / thread id from a previous run, to resume its history. */
   resumeId: string | undefined;
   guardrails?: SessionGuardrails;
+  /** Mode in force for this agent (room override applied). Read at session start/restart. */
+  mode?(): InteractionMode;
   /** Claude only: path to the Claude Code executable. */
   claudePath?: string;
   onEvent(event: SessionEvent): void;

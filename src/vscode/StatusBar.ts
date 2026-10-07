@@ -22,8 +22,15 @@ export class StatusBar implements vscode.Disposable {
       return;
     }
     const activity = this.workspace.activity(room.id);
-    const state = activity.pending > 0 ? ` · $(shield) ${activity.pending} waiting` : activity.running ? ` · $(sync~spin) ${activity.speaker ?? 'thinking'}` : '';
-    this.item.text = `$(comment-discussion) ${room.name}${state}`;
+    const state = activity.paused
+      ? ' · $(debug-pause) paused'
+      : activity.pending > 0
+        ? ` · $(shield) ${activity.pending} waiting`
+        : activity.running
+          ? ` · $(sync~spin) ${activity.speaker ?? 'thinking'}`
+          : '';
+    const mode = room.mode ? ` · ${room.mode}` : '';
+    this.item.text = `$(comment-discussion) ${room.name}${mode}${state}`;
     this.item.tooltip = `Roundtable — ${room.name}${activity.running ? ` (${activity.speaker ?? 'an agent'} is speaking)` : ''}`;
   }
 

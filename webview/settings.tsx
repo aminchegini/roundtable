@@ -1,6 +1,10 @@
 import { useState, type ReactNode } from 'react';
 import {
   DEFAULT_LIMITS,
+  MODES,
+  MODE_HINTS,
+  MODE_LABELS,
+  type InteractionMode,
   type GuardrailOverrides,
   type GuardrailsFile,
   type GuardrailsView,
@@ -110,6 +114,19 @@ export function RoomSettings({ state, room }: { state: State; room: RoomMeta }) 
         </div>
         <Field label="Rounds per message (empty = workspace default)" hint="How many times the whole table may go round after each message you send before agents stop and wait for you. Low numbers keep debates short and cheap.">
           <input type="number" min={1} value={rounds} placeholder={String(rs?.maxRounds ?? '')} onChange={(e) => setRounds(e.target.value)} />
+        </Field>
+        <Field
+          label="Room mode"
+          hint={`Forces one mode on every agent in this room, whatever their own setting. ${room.mode ? MODE_HINTS[room.mode] : 'Currently each agent uses its own mode.'} Applies on each agent's next turn.`}
+        >
+          <select value={room.mode ?? ''} onChange={(e) => post({ type: 'updateRoom', id: room.id, patch: { mode: (e.target.value || null) as InteractionMode | null } })}>
+            <option value="">agents' own modes</option>
+            {MODES.map((m) => (
+              <option key={m} value={m}>
+                {MODE_LABELS[m]} — {MODE_HINTS[m].split('.')[0]}
+              </option>
+            ))}
+          </select>
         </Field>
       </section>
 

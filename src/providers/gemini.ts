@@ -1,6 +1,6 @@
 import type { AgentSession, TurnResult } from '../room/Room';
-import type { AgentConfig, Tokens } from '../shared/protocol';
-import { WRITE_TOOL, addTokens, buildFullPrompt, editedPathsFrom, exists, findBin, home, primedInput, spawnJsonl } from './shared';
+import type { AgentConfig, InteractionMode, Tokens } from '../shared/protocol';
+import { WRITE_TOOL, addTokens, buildFullPrompt, currentMode, editedPathsFrom, exists, findBin, home, primedInput, spawnJsonl } from './shared';
 import type { Provider, SessionContext } from './types';
 
 export interface TurnAcc {
@@ -45,6 +45,11 @@ const APPROVAL: Record<AgentConfig['permissionMode'], string> = {
   plan: 'plan',
 };
 
+/** Ask and plan both map to Gemini's plan approval mode (read-only). */
+export function geminiApprovalMode(workspaceMode: AgentConfig['workspaceMode'], permissionMode: AgentConfig['permissionMode'], mode: InteractionMode): string {
+  return workspaceMode === 'read-only' || mode !== 'build' ? 'plan' : APPROVAL[permissionMode];
+}
+
 /** One `gemini -p` process per turn, chained with `--resume <session_id>`. */
 export class GeminiAgentSession implements AgentSession {
   private sessionId: string | undefined;
@@ -70,7 +75,7 @@ export class GeminiAgentSession implements AgentSession {
     const input = this.primed ? digest : primedInput(await buildFullPrompt(this.config, this.roster, cwd, this.ctx), digest);
     this.primed = true;
 
-    const mode = this.config.workspaceMode === 'read-only' ? 'plan' : APPROVAL[this.config.permissionMode];
+    const mode = geminiApprovalMode(this.config.workspaceMode, this.config.permissionMode, currentMode(this.ctx, this.config));
     const args = ['-p', input, '-o', 'stream-json', '--approval-mode', mode, '-m', this.config.model];
     if (this.sessionId) args.push('-r', this.sessionId);
 

@@ -92,7 +92,7 @@
       },
       {
         "command": "roundtable.switchRoom",
-        "title": "Switch Room\u2026",
+        "title": "Switch Room…",
         "category": "Roundtable",
         "icon": "$(list-selection)"
       },
@@ -145,6 +145,18 @@
         "icon": "$(clear-all)"
       },
       {
+        "command": "roundtable.pause",
+        "title": "Pause Debate",
+        "category": "Roundtable",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "roundtable.resume",
+        "title": "Resume Debate",
+        "category": "Roundtable",
+        "icon": "$(debug-continue)"
+      },
+      {
         "command": "roundtable.editParticipants",
         "title": "Edit Participants",
         "category": "Roundtable",
@@ -155,6 +167,12 @@
         "title": "Room Settings",
         "category": "Roundtable",
         "icon": "$(settings-gear)"
+      },
+      {
+        "command": "roundtable.setRoomMode",
+        "title": "Set Room Mode…",
+        "category": "Roundtable",
+        "icon": "$(symbol-event)"
       },
       {
         "command": "roundtable.newAgent",
@@ -188,9 +206,15 @@
       },
       {
         "command": "roundtable.changeModel",
-        "title": "Change Model\u2026",
+        "title": "Change Model…",
         "category": "Roundtable",
         "icon": "$(symbol-misc)"
+      },
+      {
+        "command": "roundtable.setAgentMode",
+        "title": "Set Agent Mode…",
+        "category": "Roundtable",
+        "icon": "$(symbol-event)"
       },
       {
         "command": "roundtable.sendSelection",
@@ -206,7 +230,7 @@
       },
       {
         "command": "roundtable.login",
-        "title": "Sign in to a Provider\u2026",
+        "title": "Sign in to a Provider…",
         "category": "Roundtable",
         "icon": "$(key)"
       },
@@ -288,6 +312,11 @@
           "group": "1_edit@0"
         },
         {
+          "command": "roundtable.setRoomMode",
+          "when": "view == roundtable.rooms && viewItem =~ /^(group|dm)/",
+          "group": "1_edit@1"
+        },
+        {
           "command": "roundtable.renameRoom",
           "when": "view == roundtable.rooms && viewItem =~ /^(group|dm)/",
           "group": "1_edit@1"
@@ -331,6 +360,11 @@
           "command": "roundtable.renameAgent",
           "when": "view == roundtable.rooms && viewItem =~ /^agent/",
           "group": "1_edit@2"
+        },
+        {
+          "command": "roundtable.setAgentMode",
+          "when": "view == roundtable.rooms && viewItem =~ /^agent/",
+          "group": "1_edit@1"
         },
         {
           "command": "roundtable.deleteAgent",

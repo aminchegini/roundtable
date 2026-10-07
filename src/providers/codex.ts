@@ -1,8 +1,8 @@
 import * as fs from 'node:fs';
 import type { Codex, ModelReasoningEffort, Thread, ThreadEvent, ThreadOptions } from '@openai/codex-sdk';
 import type { AgentSession, TurnResult } from '../room/Room';
-import type { AgentConfig, Tokens } from '../shared/protocol';
-import { addTokens, buildFullPrompt, errorMessage, exists, home, primedInput } from './shared';
+import type { AgentConfig, InteractionMode, Tokens } from '../shared/protocol';
+import { addTokens, buildFullPrompt, currentMode, errorMessage, exists, home, primedInput } from './shared';
 import type { Provider, SessionContext } from './types';
 
 type CodexModule = typeof import('@openai/codex-sdk');
@@ -119,7 +119,7 @@ export class CodexAgentSession implements AgentSession {
       modelReasoningEffort: EFFORTS[c.effort],
       workingDirectory: cwd,
       skipGitRepoCheck: true,
-      sandboxMode: c.workspaceMode === 'read-only' ? 'read-only' : 'workspace-write',
+      sandboxMode: codexSandbox(c.workspaceMode, currentMode(this.ctx, c)),
       // codex exec is non-interactive; approvals cannot be routed to the room.
       approvalPolicy: 'never',
     };
@@ -153,6 +153,11 @@ export class CodexAgentSession implements AgentSession {
     this.disposed = true;
     this.abort?.abort();
   }
+}
+
+/** Codex has no plan mode; both ask and plan run in the read-only sandbox. */
+export function codexSandbox(workspaceMode: AgentConfig['workspaceMode'], mode: InteractionMode): 'read-only' | 'workspace-write' {
+  return workspaceMode === 'read-only' || mode !== 'build' ? 'read-only' : 'workspace-write';
 }
 
 function cleanEnv(env: Record<string, string | undefined>): Record<string, string> {

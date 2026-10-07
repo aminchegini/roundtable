@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Modes: build / plan / ask per agent, and a room mode that overrides every agent; ask and plan enforced with each vendor's read-only control plus a mode prompt.
+- Pause / resume the debate; skip one agent's turn from its chip.
+- Last-message previews in the room switcher and sidebar tree; jump-to-latest button in the transcript.
+- Readability: neutral surfaces derived from the theme for bubbles, chips, badges and popovers (no more theme badge/selection colours), denser header.
 - Sign-in prompts for every vendor with a one-click terminal login and retry.
 - Billing display: subscription plan with vendor-reported quota windows, or approximate API cost; budget cap counts API spend only.
 - Disclaimer covering vendor terms, token/cost liability, no warranty; shown on first run and in Help.

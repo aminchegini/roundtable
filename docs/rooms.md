@@ -23,6 +23,22 @@ Interjections are welcome mid-debate: the agent currently speaking is not interr
 
 Esc in the composer stops the debate. Stop discards the active agent's unfinished reply.
 
+## Pause, stop, skip
+
+- **⏸ Pause** (header, `/pause`, **Roundtable: Pause Debate**): the agent currently speaking finishes, then the room waits. Messages you send meanwhile queue. **▶ Resume** continues where it stopped.
+- **Stop** (header, `Esc`, `/stop`): interrupts the speaking agent, discards its unfinished reply, ends this debate.
+- **⏭ Skip** (on the speaking agent's chip, `/skip Name`): interrupts just that agent and skips it for the rest of this round; the others carry on.
+
+## Modes
+
+Every agent has a **mode** — *Build* (full agent), *Plan* (investigate and propose, change nothing), *Ask* (answer only: no edits, no state-changing commands, no commits). The room can force one mode on everyone with the dropdown next to the room name (`/mode ask`, `/mode off`), which overrides the agents' own settings. Agent modes: drawer, roster dropdown, `/mode Rex plan`, tree **Set Agent Mode…**.
+
+Ask and plan are enforced with each vendor's strongest read-only control *and* a mode prompt the model sees — see the Modes row in [providers.md](providers.md). Changes apply on the agent's next turn (sessions restart, history kept).
+
+## Previews
+
+The room switcher and the sidebar tree show each room's last message (who said it, first line). When you scroll up in a transcript and new messages arrive, a **↓ N new** button jumps to the latest.
+
 ## Participants
 
 A room's participants are any subset of the workspace's agents. Adding an agent to a room starts a fresh session for it there; it only sees messages from that point on. Removing it drops its session in that room. Deleting an agent removes it from every room and deletes its DM.

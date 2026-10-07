@@ -10,11 +10,21 @@ body,
   padding: 0;
 }
 
+:root {
+  /* Subtle surfaces mixed from the theme's own foreground/background, so they stay
+     readable in every theme instead of borrowing selection or badge colours. */
+  --rt-surface: color-mix(in srgb, var(--vscode-foreground) 7%, var(--vscode-editor-background));
+  --rt-surface-strong: color-mix(in srgb, var(--vscode-foreground) 12%, var(--vscode-editor-background));
+  --rt-border: color-mix(in srgb, var(--vscode-foreground) 16%, var(--vscode-editor-background));
+  --rt-muted: var(--vscode-descriptionForeground);
+}
+
 body {
   color: var(--vscode-foreground);
   background: var(--vscode-editor-background);
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
+  line-height: 1.45;
 }
 
 .app {
@@ -46,7 +56,7 @@ body {
 .hint,
 .agent-meta,
 .meter {
-  color: var(--vscode-descriptionForeground);
+  color: var(--rt-muted);
   font-size: 0.9em;
 }
 
@@ -80,12 +90,13 @@ button:disabled {
 }
 
 button.secondary {
-  color: var(--vscode-button-secondaryForeground);
-  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-foreground);
+  background: var(--rt-surface);
+  border-color: var(--rt-border);
 }
 
-button.secondary:hover {
-  background: var(--vscode-button-secondaryHoverBackground);
+button.secondary:hover:not(:disabled) {
+  background: var(--rt-surface-strong);
 }
 
 button.danger {
@@ -177,6 +188,7 @@ button:focus-visible {
 
 .agent.selected {
   border-color: var(--vscode-focusBorder);
+  background: var(--rt-surface);
 }
 
 .agent-body {
@@ -226,6 +238,7 @@ button:focus-visible {
 
 .transcript {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -240,8 +253,15 @@ button:focus-visible {
 .msg.user {
   align-self: flex-end;
   padding: 8px 12px;
-  border-radius: 8px;
-  background: var(--vscode-editor-inactiveSelectionBackground);
+  border-radius: 10px 10px 2px 10px;
+  color: var(--vscode-foreground);
+  background: var(--rt-surface-strong);
+  border: 1px solid var(--rt-border);
+}
+
+.msg.user .msg-from {
+  color: var(--rt-muted);
+  font-weight: 500;
 }
 
 .msg.system {
@@ -347,8 +367,14 @@ button:focus-visible {
   padding: 2px 8px;
   border-radius: 10px;
   font-size: 0.85em;
-  color: var(--vscode-badge-foreground, var(--vscode-foreground));
-  background: var(--vscode-badge-background, var(--vscode-button-secondaryBackground));
+  color: var(--vscode-foreground);
+  background: var(--rt-surface);
+  border: 1px solid var(--rt-border);
+}
+
+.badge.paused {
+  color: var(--vscode-editorWarning-foreground, #d4a84b);
+  border-color: currentColor;
 }
 
 .tag {
@@ -542,9 +568,62 @@ label.inline input[type='checkbox'] {
 .header {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 8px 12px;
+  gap: 8px;
+  padding: 10px 14px;
   position: relative;
+  border-bottom: 1px solid var(--rt-border);
+  background: color-mix(in srgb, var(--vscode-foreground) 3%, var(--vscode-editor-background));
+}
+
+.mode-select,
+.agent-mode {
+  width: auto;
+  padding: 2px 6px;
+  font-size: 0.85em;
+}
+
+.agent-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.room-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.room-item-title {
+  font-weight: 500;
+}
+
+.room-item-preview {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85em;
+  color: var(--rt-muted);
+}
+
+.transcript-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.jump {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  border-radius: 14px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
 }
 
 .header-row {
@@ -601,19 +680,65 @@ button.ghost.active {
 
 .chip {
   display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 8px 2px 6px;
+  align-items: stretch;
   border-radius: 12px;
   font-size: 0.9em;
   color: var(--vscode-foreground);
-  background: var(--vscode-badge-background, var(--vscode-button-secondaryBackground));
-  border: 1px solid transparent;
+  background: var(--rt-surface);
+  border: 1px solid var(--rt-border);
+  overflow: hidden;
 }
 
-.chip:hover:not(:disabled) {
+.chip:hover {
   border-color: var(--vscode-focusBorder);
-  background: var(--vscode-badge-background, var(--vscode-button-secondaryBackground));
+}
+
+.chip-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px 3px 7px;
+  color: inherit;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+
+.chip-main:hover:not(:disabled) {
+  background: var(--rt-surface-strong);
+}
+
+.chip-skip {
+  padding: 0 8px;
+  color: var(--rt-muted);
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--rt-border);
+  border-radius: 0;
+}
+
+.chip-skip:hover:not(:disabled) {
+  color: var(--vscode-errorForeground);
+  background: var(--rt-surface-strong);
+}
+
+.chip.add {
+  padding: 0;
+}
+
+.chip.add .chip-main,
+.chip.add {
+  font-weight: 600;
+}
+
+.mode-tag {
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 0.75em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--vscode-editorInfo-foreground, var(--vscode-textLink-foreground));
+  border: 1px solid currentColor;
 }
 
 .chip .dot {
@@ -626,22 +751,22 @@ button.ghost.active {
   animation: pulse 1s ease-in-out infinite;
 }
 
-.chip.add {
-  padding: 2px 9px;
+button.chip.add {
+  padding: 3px 10px;
   font-weight: 600;
 }
 
 .pbadge {
   display: inline-block;
-  margin-left: 4px;
+  margin-left: 2px;
   padding: 0 4px;
   border-radius: 3px;
   font-size: 0.7em;
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
-  color: var(--vscode-descriptionForeground);
-  border: 1px solid var(--vscode-panel-border);
+  color: var(--rt-muted);
+  border: 1px solid var(--rt-border);
   vertical-align: middle;
 }
 
@@ -655,8 +780,8 @@ button.ghost.active {
   top: 100%;
   left: 12px;
   z-index: 10;
-  min-width: 240px;
-  max-width: 360px;
+  min-width: 260px;
+  max-width: 380px;
   max-height: 60vh;
   overflow-y: auto;
   display: flex;
@@ -768,7 +893,7 @@ button.ghost.active {
   display: flex;
   flex-direction: column;
   padding: 4px;
-  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  border: 1px solid var(--rt-border);
   border-radius: 6px;
   background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
@@ -827,11 +952,12 @@ button.ghost.active {
 }
 
 .md code {
-  padding: 1px 4px;
+  padding: 1px 5px;
   border-radius: 3px;
   font-family: var(--vscode-editor-font-family);
   font-size: 0.95em;
-  background: var(--vscode-textCodeBlock-background);
+  background: var(--vscode-textCodeBlock-background, var(--rt-surface-strong));
+  border: 1px solid var(--rt-border);
 }
 
 .md pre code {
