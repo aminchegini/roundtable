@@ -92,7 +92,7 @@
       },
       {
         "command": "roundtable.switchRoom",
-        "title": "Switch Room…",
+        "title": "Switch Room\u2026",
         "category": "Roundtable",
         "icon": "$(list-selection)"
       },
@@ -182,7 +182,7 @@
       },
       {
         "command": "roundtable.changeModel",
-        "title": "Change Model…",
+        "title": "Change Model\u2026",
         "category": "Roundtable",
         "icon": "$(symbol-misc)"
       },
@@ -197,6 +197,12 @@
         "title": "Refresh Providers",
         "category": "Roundtable",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "roundtable.login",
+        "title": "Sign in to a Provider\u2026",
+        "category": "Roundtable",
+        "icon": "$(key)"
       },
       {
         "command": "roundtable.openGuardrails",
@@ -242,6 +248,11 @@
           "command": "roundtable.refreshProviders",
           "when": "view == roundtable.rooms",
           "group": "1_actions@1"
+        },
+        {
+          "command": "roundtable.login",
+          "when": "view == roundtable.rooms",
+          "group": "1_actions@3"
         },
         {
           "command": "roundtable.openGuardrails",

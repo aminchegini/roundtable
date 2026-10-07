@@ -39,6 +39,11 @@ export interface SessionContext {
   ): Promise<'allow' | 'always' | 'deny'>;
 }
 
+/** True when a turn error means the vendor wants the user to sign in (again). */
+export function isAuthError(text: string): boolean {
+  return /OAuth session expired|Failed to authenticate|not (logged|signed) in|Invalid authentication|authentication (failed|required)|401|unauthori[sz]ed|login required|please (run|use) .*login|no (stored )?credentials|API key (is )?(missing|invalid)/i.test(text);
+}
+
 export interface ProviderStatus {
   installed: boolean;
   authenticated: boolean | 'unknown';
@@ -57,6 +62,8 @@ export interface Provider {
   experimental?: boolean;
   /** Default model for a new agent of this provider. */
   defaultModel: string;
+  /** Shell command that signs the user in interactively (run in a VS Code terminal). */
+  loginCommand: string;
   staticModels: ModelOption[];
   detect(env: Record<string, string | undefined>): Promise<ProviderStatus>;
   createSession(agent: AgentConfig, roster: AgentConfig[], ctx: SessionContext): AgentSession;

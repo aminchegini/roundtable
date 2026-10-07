@@ -49,6 +49,16 @@ export function ProviderCards({ providers }: { providers: ProviderView[] }) {
             </div>
             <div className="hint">{p.detail}</div>
             {!ok && p.setupHint && <div className="hint setup">{p.setupHint}</div>}
+            {!ok && p.installed && (
+              <div className="row">
+                <button className="small" onClick={() => post({ type: 'login', provider: p.id })}>
+                  Sign in
+                </button>
+                <span className="hint">
+                  opens a terminal running <code>{p.loginCommand}</code>
+                </span>
+              </div>
+            )}
             <div className="hint">
               Guardrails: {p.enforcement === 'full' ? 'full (in-process hooks)' : 'gates after each turn'} · cost: {p.costUsd ? 'USD' : 'tokens'}
               {p.experimental ? ' · experimental' : ''}
@@ -277,7 +287,16 @@ export function Drawer({ agent, providers, canRemove, onClose }: { agent: AgentV
             </option>
           ))}
         </select>
-        {provider && !available(provider) && <span className="warn-text">⚠ {provider.detail}. {provider.setupHint}</span>}
+        {provider && !available(provider) && (
+          <span className="warn-text">
+            ⚠ {provider.detail}. {provider.setupHint}{' '}
+            {provider.installed && (
+              <button className="small" onClick={() => post({ type: 'login', provider: provider.id })}>
+                Sign in
+              </button>
+            )}
+          </span>
+        )}
         {provider && <span className="hint">Guardrails: {provider.enforcement === 'full' ? 'fully enforced' : 'gates checked after each turn'}; cost shown in {provider.costUsd ? 'USD' : 'tokens'}.</span>}
       </label>
       <label>

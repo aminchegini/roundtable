@@ -137,6 +137,7 @@ export const cursorProvider: Provider = {
   enforcement: 'gates',
   costUsd: false,
   experimental: true,
+  loginCommand: 'agent login',
   defaultModel: 'sonnet-4.5',
   staticModels: [
     { id: 'sonnet-4.5', label: 'sonnet-4.5' },

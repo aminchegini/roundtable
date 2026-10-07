@@ -31,6 +31,8 @@ export interface ProviderView {
   detail: string;
   /** How to get it working, shown when unavailable. */
   setupHint: string;
+  /** Interactive sign-in command, run in a terminal by the Sign in button. */
+  loginCommand: string;
   models: ModelOption[];
   enforcement: Enforcement;
   /** Reports USD cost; otherwise only tokens. */
@@ -240,4 +242,5 @@ export type WebviewToHost =
   | { type: 'pinAgent'; id: string; pinned: boolean }
   | { type: 'openInEditor' }
   | { type: 'refreshProviders' }
+  | { type: 'login'; provider: ProviderId }
   | { type: 'openDoc'; doc: string };

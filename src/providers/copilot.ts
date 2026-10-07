@@ -168,6 +168,7 @@ export const copilotProvider: Provider = {
   vendor: 'GitHub',
   enforcement: 'full',
   costUsd: false,
+  loginCommand: 'copilot login || gh auth login',
   defaultModel: 'auto',
   staticModels: [{ id: 'auto', label: 'auto' }],
   async detect(env) {

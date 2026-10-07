@@ -49,6 +49,7 @@ export const claudeProvider: Provider = {
   vendor: 'Anthropic',
   enforcement: 'full',
   costUsd: true,
+  loginCommand: 'claude /login',
   defaultModel: 'claude-sonnet-5-5',
   staticModels: MODELS.map((id) => ({ id, label: id.replace(/^claude-/, '').replace(/-\d{8}$/, '') })),
   async detect(env) {

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { applyCursorEvent, type CursorAcc } from '../src/providers/cursor';
 import { applyGeminiEvent, type TurnAcc } from '../src/providers/gemini';
 import { PROVIDERS, ProviderRegistry } from '../src/providers/registry';
-import type { Provider } from '../src/providers/types';
+import { isAuthError, type Provider } from '../src/providers/types';
 import type { AgentSession, TurnResult } from '../src/room/Room';
 import { RoomStore } from '../src/room/RoomStore';
 import { parseReply, textProtocolPrompt } from '../src/room/textCommands';
@@ -49,6 +49,7 @@ const fakeProvider: Provider = {
   enforcement: 'gates',
   costUsd: false,
   defaultModel: 'fake-1',
+  loginCommand: 'fake login',
   staticModels: [{ id: 'fake-1', label: 'fake' }],
   detect: async () => ({ installed: true, authenticated: true, detail: 'fake', setupHint: '' }),
   createSession: (agent) => new FakeSession(agent),
@@ -214,6 +215,37 @@ describe('Workspace', () => {
       expect(prompts.get(kit.name)).toHaveLength(2);
       expect(prompts.get(kit.name)![1]).toMatch(/\[Definition of done\]/);
       expect(c.state().messages.at(-1)!.text).toBe('Changed a.ts.\nDoD: tests pass');
+      ws.dispose();
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe('login detection', () => {
+  it('recognises vendor sign-in failures and ignores ordinary errors', () => {
+    expect(isAuthError('Failed to authenticate: OAuth session expired and could not be refreshed')).toBe(true);
+    expect(isAuthError('Error: not logged in. Run codex login.')).toBe(true);
+    expect(isAuthError('HTTP 401 Unauthorized')).toBe(true);
+    expect(isAuthError('error_max_turns')).toBe(false);
+    expect(isAuthError('ENOENT: gemini not found')).toBe(false);
+  });
+
+  it('retries the last user message after a sign-in', async () => {
+    const restore = patchProvider();
+    try {
+      const { ws } = await openWorkspace(tmpdir());
+      const kit = ws.agents[2]!;
+      await ws.saveAgent({ ...kit, provider: 'cursor' });
+      const dm = ws.dmWith(kit.id);
+      const c = ws.controller(dm.id)!;
+      scripts.set(kit.name, ['first', 'second']);
+      c.send('hello again');
+      await c.room.whenIdle();
+      expect(await ws.retryAfterLogin(dm.id)).toBe(true);
+      await c.room.whenIdle();
+      expect(prompts.get(kit.name)).toEqual(['[User]: hello again', '[User]: hello again']);
+      expect(c.state().messages.filter((m) => m.from === 'user')).toHaveLength(2);
       ws.dispose();
     } finally {
       restore();
