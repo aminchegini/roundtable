@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import type { Codex, ModelReasoningEffort, Thread, ThreadEvent, ThreadOptions } from '@openai/codex-sdk';
 import type { AgentSession, TurnResult } from '../room/Room';
 import type { AgentConfig, Tokens } from '../shared/protocol';
-import { addTokens, buildFullPrompt, errorMessage, exists, home, primedInput } from './shared';
+import { addTokens, buildFullPrompt, errorMessage, exists, home, isResumeError, primedInput } from './shared';
 import type { Provider, SessionContext } from './types';
 
 type CodexModule = typeof import('@openai/codex-sdk');
@@ -32,6 +32,20 @@ export class CodexAgentSession implements AgentSession {
   }
 
   async runTurn(digest: string): Promise<TurnResult> {
+    const result = await this.runOnce(digest);
+    if (result.error && this.threadId && isResumeError(result.error)) {
+      // The stored thread id has no session on disk (a crashed earlier turn, or
+      // Codex pruned it). Forget it and start over once, re-sending the instructions.
+      this.ctx.onEvent({ type: 'activity', text: 'previous Codex thread not found; starting a fresh one' });
+      this.threadId = undefined;
+      this.thread = undefined;
+      this.primed = false;
+      return this.runOnce(digest);
+    }
+    return result;
+  }
+
+  private async runOnce(digest: string): Promise<TurnResult> {
     if (this.disposed) throw new Error('session disposed');
     const cwd = await this.ctx.resolveCwd(this.config);
     const thread = await this.ensureThread(cwd);

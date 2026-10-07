@@ -1,6 +1,6 @@
 import type { AgentSession, TurnResult } from '../room/Room';
 import type { AgentConfig, ModelOption } from '../shared/protocol';
-import { WRITE_TOOL, buildFullPrompt, editedPathsFrom, findBin, primedInput, spawnJsonl } from './shared';
+import { WRITE_TOOL, buildFullPrompt, editedPathsFrom, findBin, isResumeError, primedInput, spawnJsonl } from './shared';
 import type { Provider, SessionContext } from './types';
 import { execFile } from 'node:child_process';
 
@@ -54,6 +54,17 @@ export class CursorAgentSession implements AgentSession {
   }
 
   async runTurn(digest: string): Promise<TurnResult> {
+    const result = await this.runOnce(digest);
+    if (result.error && this.sessionId && isResumeError(result.error)) {
+      this.ctx.onEvent({ type: 'activity', text: 'previous Cursor chat not found; starting a fresh one' });
+      this.sessionId = undefined;
+      this.primed = false;
+      return this.runOnce(digest);
+    }
+    return result;
+  }
+
+  private async runOnce(digest: string): Promise<TurnResult> {
     if (this.disposed) throw new Error('session disposed');
     const bin = findBin('agent', 'cursor-agent');
     if (!bin) return { text: '', passed: false, costUsd: 0, error: 'Cursor agent CLI not installed' };

@@ -130,6 +130,11 @@ export function addTokens(total: Tokens, input: number | undefined, output: numb
   return { input: total.input + (input ?? 0), output: total.output + (output ?? 0) };
 }
 
+/** The vendor could not find the session/thread we asked it to resume. */
+export function isResumeError(text: string | undefined): boolean {
+  return !!text && /thread\/resume|no rollout found|session (id )?.*not found|unknown session|could not (find|resume) (the )?(session|chat|thread)|no (such|saved) (session|chat|thread)|resume.*(failed|invalid)/i.test(text);
+}
+
 export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }

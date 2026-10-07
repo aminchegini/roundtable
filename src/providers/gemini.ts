@@ -1,6 +1,6 @@
 import type { AgentSession, TurnResult } from '../room/Room';
 import type { AgentConfig, Tokens } from '../shared/protocol';
-import { WRITE_TOOL, addTokens, buildFullPrompt, editedPathsFrom, exists, findBin, home, primedInput, spawnJsonl } from './shared';
+import { WRITE_TOOL, addTokens, buildFullPrompt, editedPathsFrom, exists, findBin, home, isResumeError, primedInput, spawnJsonl } from './shared';
 import type { Provider, SessionContext } from './types';
 
 export interface TurnAcc {
@@ -63,6 +63,17 @@ export class GeminiAgentSession implements AgentSession {
   }
 
   async runTurn(digest: string): Promise<TurnResult> {
+    const result = await this.runOnce(digest);
+    if (result.error && this.sessionId && isResumeError(result.error)) {
+      this.ctx.onEvent({ type: 'activity', text: 'previous Gemini session not found; starting a fresh one' });
+      this.sessionId = undefined;
+      this.primed = false;
+      return this.runOnce(digest);
+    }
+    return result;
+  }
+
+  private async runOnce(digest: string): Promise<TurnResult> {
     if (this.disposed) throw new Error('session disposed');
     const bin = findBin('gemini');
     if (!bin) return { text: '', passed: false, costUsd: 0, error: 'Gemini CLI not installed (npm i -g @google/gemini-cli)' };

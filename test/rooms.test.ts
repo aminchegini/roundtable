@@ -3,6 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { applyCursorEvent, type CursorAcc } from '../src/providers/cursor';
+import { isResumeError } from '../src/providers/shared';
 import { applyGeminiEvent, type TurnAcc } from '../src/providers/gemini';
 import { PROVIDERS, ProviderRegistry } from '../src/providers/registry';
 import { isAuthError, type Provider } from '../src/providers/types';
@@ -219,6 +220,15 @@ describe('Workspace', () => {
     } finally {
       restore();
     }
+  });
+});
+
+describe('resume detection', () => {
+  it('recognises vendor "session not found" errors', () => {
+    expect(isResumeError('Codex Exec exited with code 1: Error: thread/resume: thread/resume failed: no rollout found for thread id d4bd51a7 (code -32600)')).toBe(true);
+    expect(isResumeError('Session abc not found')).toBe(true);
+    expect(isResumeError('unexpected status 401 Unauthorized')).toBe(false);
+    expect(isResumeError(undefined)).toBe(false);
   });
 });
 
