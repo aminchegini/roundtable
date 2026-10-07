@@ -227,6 +227,10 @@ describe('login detection', () => {
     expect(isAuthError('Failed to authenticate: OAuth session expired and could not be refreshed')).toBe(true);
     expect(isAuthError('Error: not logged in. Run codex login.')).toBe(true);
     expect(isAuthError('HTTP 401 Unauthorized')).toBe(true);
+    expect(isAuthError('unexpected status 401 Unauthorized: Missing bearer or basic authentication in header')).toBe(true);
+    expect(isAuthError("Authentication required. Please run 'agent login' first")).toBe(true);
+    expect(isAuthError('Access token has expired')).toBe(true);
+    expect(isAuthError('request id req_4011abc failed')).toBe(false);
     expect(isAuthError('error_max_turns')).toBe(false);
     expect(isAuthError('ENOENT: gemini not found')).toBe(false);
   });

@@ -242,6 +242,7 @@ export class Workspace {
         if (Date.now() - last < 60_000) return;
         this.lastLoginPrompt.set(agent.provider, Date.now());
         this.notify({ type: 'login-needed', provider: agent.provider, agentName: agent.name, reason, roomId });
+        void this.providers.refresh();
       },
     });
     this.controllers.set(roomId, controller);
