@@ -58,7 +58,7 @@ export class CopilotAgentSession implements AgentSession {
       const offs: Array<() => void> = [];
       const done = () => {
         offs.forEach((off) => off());
-        resolve({ text: text || streamed, passed: false, costUsd: 0, tokens: this.tokens, error });
+        resolve({ text: text || streamed, passed: false, costUsd: 0, tokens: this.tokens, billing: 'subscription', error });
       };
       offs.push(
         session.on('assistant.message_delta', (e) => {

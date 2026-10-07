@@ -126,7 +126,7 @@ export class Workspace {
   }
 
   agentViews(): AgentView[] {
-    return this.agents.map((config) => ({ config, status: 'idle', costUsd: 0, tokens: { input: 0, output: 0 } }));
+    return this.agents.map((config) => ({ config, status: 'idle', costUsd: 0, tokens: { input: 0, output: 0 }, billing: 'unknown' }));
   }
 
   async addAgent(provider: ProviderId = 'claude', model?: string): Promise<AgentConfig> {

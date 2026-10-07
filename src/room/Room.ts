@@ -5,6 +5,8 @@ import {
   type AgentView,
   type RoomMessage,
   type RoomStatus,
+  type BillingKind,
+  type QuotaInfo,
   type StopReason,
   type Tokens,
 } from '../shared/protocol';
@@ -19,6 +21,10 @@ export interface TurnResult {
   costUsd: number;
   /** Cumulative tokens of this agent's session, when the provider reports them. */
   tokens?: Tokens;
+  /** How the vendor bills this session, once the session knows. */
+  billing?: BillingKind;
+  /** Rate-limit windows the vendor reported during the turn. */
+  quota?: QuotaInfo[];
   error?: string;
 }
 
@@ -62,12 +68,15 @@ interface Member {
   status: AgentStatus;
   costUsd: number;
   tokens: Tokens;
+  billing: BillingKind;
+  quota?: QuotaInfo[];
 }
 
 export interface RoomSnapshot {
   messages: RoomMessage[];
   costs: Record<string, number>;
   tokens?: Record<string, Tokens>;
+  billing?: Record<string, BillingKind>;
 }
 
 const NO_TOKENS: Tokens = { input: 0, output: 0 };
@@ -99,11 +108,13 @@ export class Room {
       this.nextId = this.messages.reduce((max, m) => Math.max(max, m.id), 0) + 1;
     }
     for (const config of configs) {
-      this.members.push(this.makeMember(config, configs, snapshot?.costs[config.id] ?? 0, snapshot?.tokens?.[config.id]));
+      this.members.push(
+        this.makeMember(config, configs, snapshot?.costs[config.id] ?? 0, snapshot?.tokens?.[config.id], snapshot?.billing?.[config.id]),
+      );
     }
   }
 
-  private makeMember(config: AgentConfig, roster: AgentConfig[], costUsd = 0, tokens: Tokens = NO_TOKENS): Member {
+  private makeMember(config: AgentConfig, roster: AgentConfig[], costUsd = 0, tokens: Tokens = NO_TOKENS, billing: BillingKind = 'unknown'): Member {
     return {
       config,
       session: this.deps.createSession(config, roster),
@@ -113,13 +124,14 @@ export class Room {
       status: 'idle',
       costUsd,
       tokens,
+      billing,
     };
   }
 
   // ---- views ----
 
   get agentViews(): AgentView[] {
-    return this.members.map((m) => ({ config: m.config, status: m.status, costUsd: m.costUsd, tokens: m.tokens }));
+    return this.members.map((m) => ({ config: m.config, status: m.status, costUsd: m.costUsd, tokens: m.tokens, billing: m.billing, quota: m.quota }));
   }
 
   get transcript(): RoomMessage[] {
@@ -133,7 +145,10 @@ export class Room {
       round: this.round,
       maxRounds: caps.maxRounds,
       costUsd: this.totalCost,
+      apiCostUsd: this.apiCost,
       tokens: this.members.reduce((t, m) => ({ input: t.input + m.tokens.input, output: t.output + m.tokens.output }), { ...NO_TOKENS }),
+      billing: this.billing,
+      quota: this.worstQuota,
       budgetUsd: caps.budgetUsd,
       stopReason: this.stopReason,
     };
@@ -144,7 +159,32 @@ export class Room {
       messages: this.messages.slice(-300),
       costs: Object.fromEntries(this.members.map((m) => [m.config.id, m.costUsd])),
       tokens: Object.fromEntries(this.members.map((m) => [m.config.id, m.tokens])),
+      billing: Object.fromEntries(this.members.map((m) => [m.config.id, m.billing])),
     };
+  }
+
+  /** USD that will show up on a bill: agents on an API key, plus unknown ones to be safe. */
+  private get apiCost(): number {
+    return this.members.filter((m) => m.billing !== 'subscription').reduce((sum, m) => sum + m.costUsd, 0);
+  }
+
+  private get billing(): RoomStatus['billing'] {
+    const kinds = new Set(this.members.map((m) => m.billing));
+    if (kinds.size === 0) return 'unknown';
+    if (kinds.has('subscription') && (kinds.has('api') || kinds.has('unknown'))) return 'mixed';
+    if (kinds.has('subscription')) return 'subscription';
+    if (kinds.has('api')) return 'api';
+    return 'unknown';
+  }
+
+  private get worstQuota(): RoomStatus['quota'] {
+    let worst: RoomStatus['quota'];
+    for (const m of this.members) {
+      for (const q of m.quota ?? []) {
+        if (!worst || q.usedPercent > worst.usedPercent) worst = { ...q, agentName: m.config.name };
+      }
+    }
+    return worst;
   }
 
   private get round(): number {
@@ -285,7 +325,7 @@ export class Room {
     if (this.members.length === 0) return 'all-passed';
     if (this.consecutiveErrors >= this.members.length) return 'all-failed';
     if (this.consecutivePasses >= this.members.length) return 'all-passed';
-    if (caps.budgetUsd > 0 && this.totalCost >= caps.budgetUsd) return 'budget';
+    if (caps.budgetUsd > 0 && this.apiCost >= caps.budgetUsd) return 'budget';
     if (this.round >= caps.maxRounds) return 'max-rounds';
     return undefined;
   }
@@ -295,7 +335,7 @@ export class Room {
     if (reason === 'max-rounds') {
       this.post('system', `Round cap reached (${caps.maxRounds}). Send a message to continue.`);
     } else if (reason === 'budget') {
-      this.post('system', `Budget cap reached ($${caps.budgetUsd.toFixed(2)}). Raise roundtable.budgetUsd or reset the room.`);
+      this.post('system', `API budget cap reached (≈$${caps.budgetUsd.toFixed(2)}). Raise roundtable.budgetUsd or reset the room.`);
     } else if (reason === 'all-failed') {
       this.post('system', 'Every agent failed on its last turn. Debate stopped.');
     }
@@ -344,6 +384,8 @@ export class Room {
         output: Math.max(member.tokens.output, result.tokens.output),
       };
     }
+    if (result.billing) member.billing = result.billing;
+    if (result.quota) member.quota = result.quota;
 
     if (this.stopRequested) {
       member.status = 'idle';

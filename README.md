@@ -98,13 +98,19 @@ Saved in `.roundtable/guardrails.json`, so the whole team runs the same factory.
 | [Guardrails](docs/guardrails.md) | catalog, presets, setup, adding your own |
 | [Troubleshooting](docs/troubleshooting.md) · [FAQ](docs/faq.md) | |
 | [Development](docs/development.md) | layout, data flow, tests, release |
-| [Changelog](CHANGELOG.md) | |
+| [Changelog](CHANGELOG.md) · [Disclaimer](DISCLAIMER.md) | |
 
 ## Status
 
 Version 0.3.0, runs from source; not on the Marketplace yet. Claude, Codex and Copilot are exercised end-to-end; the Gemini and Cursor adapters are tested against their documented event formats and need an installed, signed-in CLI to try live. Cursor support is marked experimental.
 
 Roadmap: out-of-process hook files for Codex / Gemini / Cursor so PreToolUse blocks apply everywhere, Marketplace packaging, agents speaking in parallel, Python and Go guardrail catalogs, CI export of the same gates.
+
+## Costs, quotas and a word of caution
+
+Agents on a **subscription** (Claude Code login, ChatGPT login, Copilot, Cursor, Gemini OAuth) show *plan* and, where the vendor reports it, how much of the current rate-limit window is left. Agents on an **API key** show an *approximate* dollar figure taken from the vendor's own estimate; the room budget cap applies to that figure only. Nothing Roundtable shows is a bill.
+
+Roundtable is independent and not affiliated with any vendor. It drives their tools under **your** accounts and **their** terms; usage, charges and anything an agent does in your repository are your responsibility. Read [DISCLAIMER.md](DISCLAIMER.md).
 
 ## Contributing
 

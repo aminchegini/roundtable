@@ -46,6 +46,12 @@ A **provider** is the adapter for one vendor. It knows how to detect whether the
 
 A **guardrail** is a project-level rule every agent must follow: a gate enforced on tool calls, a knowledge file fed into every prompt, or a process rule such as reviewer approval. Chosen per project from presets or individually, saved in `.roundtable/guardrails.json`. See [guardrails.md](guardrails.md).
 
-## Cost
+## Cost and quotas
 
-Claude reports an estimated USD figure per session; the header shows the room total and the budget. Other vendors report tokens, shown as `12k tok`; they are not part of the USD cap.
+Each session reports how it is billed once it starts:
+
+- **Subscription** (Claude Code login, ChatGPT login, Copilot, Cursor login, Gemini OAuth): the header says *Subscription* and, when the vendor reports rate-limit windows (Claude does: 5-hour and 7-day), how much of the fullest window is left. No dollar figure is shown because there is no per-call charge.
+- **API key**: the header shows *API ≈ $x.xx (approx)* — the vendor's own estimate, not a bill — and the room budget cap (`roundtable.budgetUsd`) applies to it.
+- A room with both shows both. Token counts appear where nothing else is available.
+
+All figures are approximate and vendor-reported; the vendor's dashboard is authoritative. See [DISCLAIMER.md](../DISCLAIMER.md).

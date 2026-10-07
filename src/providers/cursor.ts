@@ -92,7 +92,7 @@ export class CursorAgentSession implements AgentSession {
     let error = acc.error;
     if (result.aborted) error = 'interrupted';
     else if (result.code !== 0 && !error) error = result.stderr.split('\n').slice(-3).join(' ') || `agent exited with ${result.code}`;
-    return { text, passed: false, costUsd: 0, error };
+    return { text, passed: false, costUsd: 0, billing: this.ctx.env.CURSOR_API_KEY ? 'api' : 'subscription', error };
   }
 
   async interrupt(): Promise<void> {

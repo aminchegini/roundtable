@@ -62,7 +62,7 @@ export class CodexAgentSession implements AgentSession {
       this.threadId = thread.id;
       this.ctx.onEvent({ type: 'started', sessionId: thread.id, model: this.config.model, apiKeySource: 'codex login' });
     }
-    return { text, passed: false, costUsd: 0, tokens: this.tokens, error };
+    return { text, passed: false, costUsd: 0, tokens: this.tokens, billing: this.ctx.env.CODEX_API_KEY ? 'api' : 'subscription', error };
   }
 
   private handle(event: ThreadEvent, text: string, cwd: string | undefined, fail: (e: string) => void): string {

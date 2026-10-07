@@ -397,6 +397,7 @@ export function Drawer({ agent, providers, canRemove, onClose }: { agent: AgentV
 // ---------------------------------------------------------------------- help
 
 const DOCS: Array<[string, string]> = [
+  ['../DISCLAIMER.md', 'Disclaimer'],
   ['getting-started.md', 'Getting started'],
   ['concepts.md', 'Concepts: agents, rooms, DMs, turns'],
   ['providers.md', 'Providers: Claude, Codex, Gemini, Copilot, Cursor'],
@@ -459,6 +460,20 @@ export function Help({ providers }: { providers: ProviderView[] }) {
       <section>
         <h3>Providers</h3>
         <ProviderCards providers={providers} />
+      </section>
+      <section>
+        <h3>Costs and quotas</h3>
+        <p className="hint">
+          Agents on a subscription show <b>plan</b> and, when the vendor reports it, how much of the current rate-limit window is left. Agents on an API key show an{' '}
+          <b>approximate</b> dollar figure from the vendor's own estimate; the room budget cap applies to that figure only. None of this is a bill — check the vendor's dashboard for the real numbers.
+        </p>
+      </section>
+      <section>
+        <h3>Disclaimer</h3>
+        <p className="hint">
+          Roundtable is an independent project, not affiliated with Anthropic, OpenAI, Google, GitHub or Cursor. It drives each vendor's own tools under <b>your</b> accounts and their terms; usage, charges and anything an agent does are your responsibility. Provided as is, without warranty. {' '}
+          <a href="#" onClick={(e) => { e.preventDefault(); post({ type: 'openDoc', doc: '../DISCLAIMER.md' }); }}>Read the full disclaimer</a>.
+        </p>
       </section>
       <section>
         <h3>Documentation</h3>
