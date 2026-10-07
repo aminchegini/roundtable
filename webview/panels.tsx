@@ -3,6 +3,9 @@ import { selectPreset, setGuardrailConfig, toggleGuardrail } from '../src/shared
 import {
   DEFAULT_LIMITS,
   EFFORTS,
+  MODES,
+  MODE_HINTS,
+  MODE_LABELS,
   PERMISSION_MODES,
   WORKSPACE_MODES,
   type AgentConfig,
@@ -245,6 +248,19 @@ function ConfigForm(props: { fields: FieldSpec[]; config: Record<string, unknown
   );
 }
 
+/** How a mode is enforced for a vendor, for the hint under the Mode field. */
+function modeEnforcement(provider: AgentConfig['provider'], mode: AgentConfig['mode']): string {
+  if (!mode || mode === 'build') return '';
+  const table: Record<AgentConfig['provider'], Record<'plan' | 'ask', string>> = {
+    claude: { plan: "Enforced with Claude's plan permission mode (read-only tools).", ask: 'Enforced by removing Edit, Write and Bash tools.' },
+    codex: { plan: 'Enforced with the read-only sandbox (Codex has no plan mode).', ask: 'Enforced with the read-only sandbox.' },
+    gemini: { plan: "Enforced with Gemini's plan approval mode.", ask: "Enforced with Gemini's plan approval mode (read-only)." },
+    copilot: { plan: 'Enforced by excluding edit and shell tools (Copilot has no plan mode).', ask: 'Enforced by excluding edit and shell tools.' },
+    cursor: { plan: "Enforced with Cursor's --mode plan.", ask: "Enforced with Cursor's --mode ask." },
+  };
+  return table[provider][mode];
+}
+
 // -------------------------------------------------------------------- drawer
 
 export function Drawer({
@@ -351,6 +367,18 @@ export function Drawer({
         {agent.liveModel && agent.liveModel !== draft.model && <span className="hint">running: {agent.liveModel}</span>}
         <span className="hint">The vendor's model id. Pick from the list or type one the vendor accepts; changes apply live where the vendor allows.</span>
       </label>
+      <Field
+        label="Mode"
+        hint={`${MODE_HINTS[draft.mode ?? 'build']} ${modeEnforcement(draft.provider, draft.mode ?? 'build')} A room mode, when set, overrides this.`}
+      >
+        <select value={draft.mode ?? 'build'} onChange={(e) => set('mode', e.target.value as AgentConfig['mode'])}>
+          {MODES.map((m) => (
+            <option key={m} value={m}>
+              {MODE_LABELS[m]}
+            </option>
+          ))}
+        </select>
+      </Field>
       <Field label="Effort" hint="How hard the model thinks before answering (reasoning budget). Higher = slower, costlier, more careful. Not every vendor or model honours every level.">
         <select value={draft.effort} onChange={(e) => set('effort', e.target.value as AgentConfig['effort'])}>
           {EFFORTS.map((v) => (

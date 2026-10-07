@@ -1,7 +1,7 @@
 import type { CopilotClient, CopilotSession, PermissionRequest, PermissionRequestResult, SessionConfig } from '@github/copilot-sdk';
 import type { AgentSession, TurnResult } from '../room/Room';
-import type { AgentConfig, ModelOption, Tokens } from '../shared/protocol';
-import { WRITE_TOOL, addTokens, buildFullPrompt, editedPathsFrom, errorMessage } from './shared';
+import type { AgentConfig, InteractionMode, ModelOption, Tokens } from '../shared/protocol';
+import { WRITE_TOOL, addTokens, buildFullPrompt, currentMode, editedPathsFrom, errorMessage } from './shared';
 import type { Provider, SessionContext } from './types';
 
 type CopilotModule = typeof import('@github/copilot-sdk');
@@ -105,13 +105,12 @@ export class CopilotAgentSession implements AgentSession {
   private sessionConfig(): SessionConfig {
     const cwd = this.cwd;
     const agent = this.config;
-    const readOnly = agent.workspaceMode === 'read-only';
     return {
       model: agent.model === 'auto' ? undefined : agent.model,
       reasoningEffort: EFFORTS[agent.effort] as SessionConfig['reasoningEffort'],
       workingDirectory: cwd,
       streaming: true,
-      excludedTools: readOnly ? ['edit', 'create', 'write', 'bash', 'shell'] : undefined,
+      excludedTools: copilotExcludedTools(agent.workspaceMode, currentMode(this.ctx, agent)),
       onPermissionRequest: (request) => this.permission(request),
       hooks: {
         onPreToolUse: async (input) => {
@@ -167,6 +166,11 @@ export class CopilotAgentSession implements AgentSession {
     this.disposed = true;
     void this.session?.abort().catch(() => undefined);
   }
+}
+
+/** Copilot has no plan mode; ask and plan both exclude the mutating tools. */
+export function copilotExcludedTools(workspaceMode: AgentConfig['workspaceMode'], mode: InteractionMode): string[] | undefined {
+  return workspaceMode === 'read-only' || mode !== 'build' ? ['edit', 'create', 'write', 'bash', 'shell'] : undefined;
 }
 
 export const copilotProvider: Provider = {

@@ -7,6 +7,7 @@ Open an agent's settings by clicking its chip in the chat header, its row in the
 | Name, colour | How the agent appears; `@Name` mentions use it | Next turn (sessions restart, history kept) |
 | Provider | Vendor runtime (Claude, Codex, Gemini, Copilot, Cursor). Unavailable vendors are flagged with a setup hint | Next turn |
 | Model | Vendor model id; dropdown of known models or **Other…** | Live where the vendor allows, else next turn |
+| Mode | Build (full agent), Plan (propose only, vendor plan mode where it exists), Ask (answer only, no edits or state-changing commands on any vendor). A room mode overrides it | Next turn |
 | Effort | low · medium · high · xhigh · max; mapped to the vendor's reasoning effort | Live (Claude) / next turn |
 | Permission mode | default (ask), acceptEdits, auto, plan, dontAsk; mapped per vendor, see [providers.md](providers.md) | Live (Claude, Copilot) / next turn |
 | Workspace | shared (edits the open folder), worktree (own git worktree, `node_modules` symlinked), read-only (no edits, no shell) | Next turn |

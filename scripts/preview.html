@@ -25,15 +25,15 @@
 <script>
   const cfg = (id, name, color, model, role) => ({ id, name, color, role, model, effort: 'medium', permissionMode: 'default', allowedTools: [], disallowedTools: [], workspaceMode: 'shared' });
   let agents = [
-    { config: cfg('ada', 'Ada', '#d97757', 'claude-fable-5-1', 'Architect.'), status: 'idle', costUsd: 0.21, tokens: { input: 9000, output: 1200 }, billing: 'subscription', quota: [{ window: '5h', usedPercent: 38 }, { window: '7d', usedPercent: 12 }] },
-    { config: cfg('rex', 'Rex', '#6a9bcc', 'claude-sonnet-5-5', 'Skeptic.'), status: 'speaking', costUsd: 0.09, tokens: { input: 4000, output: 800 }, billing: 'subscription', quota: [{ window: '5h', usedPercent: 38 }] },
-    { config: cfg('kit', 'Kit', '#788c5d', 'claude-haiku-4-5-20251001', 'Pragmatist.'), status: 'idle', costUsd: 0, tokens: { input: 14000, output: 2200 }, billing: 'subscription' },
+    { config: cfg('ada', 'Ada', '#d97757', 'claude-fable-5-1', 'Architect.'), status: 'idle', costUsd: 0.21, tokens: { input: 9000, output: 1200 }, billing: 'subscription', quota: [{ window: '5h', usedPercent: 38 }, { window: '7d', usedPercent: 12 }], mode: 'build' },
+    { config: cfg('rex', 'Rex', '#6a9bcc', 'claude-sonnet-5-5', 'Skeptic.'), status: 'speaking', costUsd: 0.09, tokens: { input: 4000, output: 800 }, billing: 'subscription', quota: [{ window: '5h', usedPercent: 38 }], mode: 'ask' },
+    { config: cfg('kit', 'Kit', '#788c5d', 'claude-haiku-4-5-20251001', 'Pragmatist.'), status: 'idle', costUsd: 0, tokens: { input: 14000, output: 2200 }, billing: 'subscription', mode: 'build' },
   ];
   let id = 1;
   agents[2].config.provider = 'codex'; agents[2].config.model = 'gpt-6-astra';
   const rooms = { activeRoomId: 'r1', rooms: [
-    { id: 'r1', name: 'Architecture', kind: 'group', agentIds: ['ada', 'rex', 'kit'], pinned: true, createdAt: 0, lastActivity: 2 },
-    { id: 'r2', name: 'Release prep', kind: 'group', agentIds: ['ada', 'kit'], pinned: false, createdAt: 0, lastActivity: 1 },
+    { id: 'r1', name: 'Architecture', kind: 'group', agentIds: ['ada', 'rex', 'kit'], pinned: true, createdAt: 0, lastActivity: 2, lastMessage: { from: 'Rex', text: 'Deploys wipe an in-process cache, so every release logs everyone out.', ts: 0 } },
+    { id: 'r2', name: 'Release prep', kind: 'group', agentIds: ['ada', 'kit'], pinned: false, createdAt: 0, lastActivity: 1, mode: 'ask', lastMessage: { from: 'You', text: 'What is left before we tag 0.4?', ts: 0 } },
     { id: 'r3', name: 'Rex', kind: 'dm', agentIds: ['rex'], pinned: false, createdAt: 0, lastActivity: 0 },
   ] };
   const providers = [
@@ -86,7 +86,7 @@
       console.log('to host', m);
       if (m.type === 'ready') {
         send({ type: 'state', location: new URLSearchParams(location.search).get('loc') || 'editor',
-          roomState: { agents, messages, room: { running: true, round: 0, maxRounds: 6, costUsd: 0.32, apiCostUsd: 0, billing: 'subscription', quota: { window: '5h', usedPercent: 38, agentName: 'Ada' }, tokens: { input: 27000, output: 4200 }, budgetUsd: 2, locks: { review: 'awaiting reviewer approval' } },
+          roomState: { agents, messages, room: { running: true, paused: false, round: 0, maxRounds: 6, costUsd: 0.32, apiCostUsd: 0, billing: 'subscription', quota: { window: '5h', usedPercent: 38, agentName: 'Ada' }, tokens: { input: 27000, output: 4200 }, budgetUsd: 2, locks: { review: 'awaiting reviewer approval' } },
             permissions: [{ requestId: '1', agentId: 'rex', toolName: 'Bash', detail: 'Bash: grep -rn "SessionStore" src/', canAlways: true }],
             limits: { allowApi: false, apiBudgetUsd: 0, quotaStopPercent: 0, maxTokens: 0 }, maxRounds: 6, guardrails, inheritsGuardrails: true,
             spec: { status: 'pending', agentName: 'Ada', markdown: '## Requirements\n- Session cache behind `SessionStore`\n\n## Design\nIn-process map, interface in `src/shared`.\n\n## Tasks\n1. Add interface\n2. Add MemoryStore\n3. Tests' } },
@@ -101,6 +101,8 @@
       if (m.type === 'specDecision') { send({ type: 'spec', spec: undefined }); send({ type: 'message', message: { id: id++, from: 'user', text: 'Spec approved. Go ahead and implement it.', ts: 0 } }); }
       if (m.type === 'switchRoom') { rooms.activeRoomId = m.id; send({ type: 'rooms', rooms }); }
       if (m.type === 'renameRoom') { rooms.rooms.find((r) => r.id === m.id).name = m.name; send({ type: 'rooms', rooms }); }
+      if (m.type === 'pause' || m.type === 'resume') { send({ type: 'room', room: { running: true, paused: m.type === 'pause', round: 0, maxRounds: 6, costUsd: 0.32, apiCostUsd: 0, billing: 'subscription', tokens: { input: 27000, output: 4200 }, budgetUsd: 0 } }); }
+      if (m.type === 'updateRoom' && m.patch.mode !== undefined) { const r = rooms.rooms.find((r) => r.id === m.id); if (m.patch.mode === null) delete r.mode; else r.mode = m.patch.mode; send({ type: 'rooms', rooms }); }
       if (m.type === 'pinRoom') { rooms.rooms.find((r) => r.id === m.id).pinned = m.pinned; send({ type: 'rooms', rooms }); }
       if (m.type === 'saveAgent') { agents = agents.map((a) => a.config.id === m.config.id ? { ...a, config: m.config } : a); send({ type: 'agents', agents }); }
     },

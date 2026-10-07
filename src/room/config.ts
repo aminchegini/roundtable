@@ -23,6 +23,7 @@ const agentSchema = z.object({
     .object({ allowApi: z.boolean(), apiBudgetUsd: z.number().min(0), quotaStopPercent: z.number().min(0).max(100), maxTokens: z.number().min(0) })
     .optional(),
   guardrails: z.object({ enabled: z.record(z.string(), z.union([z.literal(true), z.record(z.string(), z.unknown())])), disabled: z.array(z.string()) }).optional(),
+  mode: z.enum(['build', 'plan', 'ask']).optional(),
 });
 
 const fileSchema = z.object({ agents: z.array(agentSchema) });

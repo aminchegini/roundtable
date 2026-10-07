@@ -6,6 +6,7 @@ import {
   type AgentView,
   type BenchReason,
   type BillingKind,
+  type InteractionMode,
   type Limits,
   type QuotaInfo,
   type RoomMessage,
@@ -67,6 +68,8 @@ export interface RoomDeps {
   billingHint?(config: AgentConfig): BillingKind;
   /** True when the agent's vendor is known to be unavailable (not installed / signed out). */
   unavailable?(config: AgentConfig): boolean;
+  /** Mode in force for an agent (room override applied); defaults to the agent's own or build. */
+  modeOf?(config: AgentConfig): InteractionMode;
 }
 
 interface Member {
@@ -81,6 +84,8 @@ interface Member {
   quota?: QuotaInfo[];
   /** Bench reason already announced for the current user request. */
   benchAnnounced?: BenchReason;
+  /** The user asked to stop this agent's current turn and skip it this round. */
+  skipRequested?: boolean;
 }
 
 export interface RoomSnapshot {
@@ -102,6 +107,8 @@ export class Room {
   private messages: RoomMessage[] = [];
   private nextId = 1;
   private running = false;
+  private paused = false;
+  private resumeGate: (() => void) | undefined;
   private stopRequested = false;
   private stopReason: StopReason | undefined;
   /** Agent turns taken since the last user message. */
@@ -181,6 +188,7 @@ export class Room {
       billing: m.billing,
       quota: m.quota,
       benched: this.benchReason(m),
+      mode: this.deps.modeOf?.(m.config) ?? m.config.mode ?? 'build',
     }));
   }
 
@@ -192,6 +200,7 @@ export class Room {
     const caps = this.deps.getCaps();
     return {
       running: this.running,
+      paused: this.paused,
       round: this.round,
       maxRounds: caps.maxRounds,
       costUsd: this.totalCost,
@@ -280,8 +289,37 @@ export class Room {
   async stop(): Promise<void> {
     if (!this.running) return;
     this.stopRequested = true;
+    this.resume();
     await this.active?.session.interrupt().catch(() => undefined);
     await this.loop;
+  }
+
+  /** Hold the debate after the current turn finishes; messages still queue. */
+  pause(): void {
+    if (this.paused) return;
+    this.paused = true;
+    this.deps.emit({ type: 'room' });
+  }
+
+  resume(): void {
+    if (!this.paused) return;
+    this.paused = false;
+    this.resumeGate?.();
+    this.resumeGate = undefined;
+    this.deps.emit({ type: 'room' });
+  }
+
+  /** Interrupt one agent's current turn (if speaking) and skip it for the rest of this round. */
+  async skipAgent(id: string): Promise<void> {
+    const member = this.members.find((m) => m.config.id === id);
+    if (!member) return;
+    this.priority = this.priority.filter((p) => p !== id);
+    if (this.active === member) {
+      member.skipRequested = true;
+      await member.session.interrupt().catch(() => undefined);
+    } else if (this.running) {
+      member.skipRequested = true;
+    }
   }
 
   /** Text of the last thing the user said, for retries. */
@@ -355,6 +393,9 @@ export class Room {
 
   private async run(): Promise<void> {
     for (;;) {
+      if (this.paused && !this.stopRequested) {
+        await new Promise<void>((resolve) => (this.resumeGate = resolve));
+      }
       const reason = this.shouldStop();
       if (reason) {
         this.stopReason = reason;
@@ -420,6 +461,12 @@ export class Room {
   private async takeTurn(member: Member): Promise<void> {
     const digest = this.digestFor(member);
     this.turnsSinceUser += 1;
+    if (member.skipRequested) {
+      member.skipRequested = false;
+      this.consecutivePasses += 1;
+      this.post('system', `${member.config.name} skipped this round.`);
+      return;
+    }
     const bench = this.benchReason(member);
     if (bench) {
       this.announceBench(member, bench);
@@ -458,6 +505,11 @@ export class Room {
 
     if (this.stopRequested) {
       member.status = 'idle';
+    } else if (member.skipRequested) {
+      member.skipRequested = false;
+      member.status = 'idle';
+      this.consecutivePasses += 1;
+      this.post('system', `${member.config.name} skipped this round.`);
     } else if (result.error) {
       member.status = 'error';
       this.consecutiveErrors += 1;

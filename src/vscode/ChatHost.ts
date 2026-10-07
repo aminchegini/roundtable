@@ -103,6 +103,15 @@ export class ChatHost implements vscode.Disposable {
       case 'stop':
         await controller?.stop();
         return;
+      case 'pause':
+        controller?.pause();
+        return;
+      case 'resume':
+        controller?.resume();
+        return;
+      case 'skipAgent':
+        await controller?.skipAgent(m.id);
+        return;
       case 'reset':
         if (this.activeRoomId) {
           await ws.resetRoom(this.activeRoomId);

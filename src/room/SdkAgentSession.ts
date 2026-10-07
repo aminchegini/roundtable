@@ -6,7 +6,8 @@ import type {
   SDKMessage,
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { AgentConfig, BillingKind, QuotaInfo } from '../shared/protocol';
+import type { AgentConfig, BillingKind, InteractionMode, QuotaInfo } from '../shared/protocol';
+import { modePrompt } from '../providers/shared';
 import type { AgentSession, TurnResult } from './Room';
 
 type Sdk = typeof import('@anthropic-ai/claude-agent-sdk');
@@ -154,7 +155,8 @@ export class SdkAgentSession implements AgentSession {
       return;
     }
     if (prev.model !== next.model) await this.query.setModel(next.model);
-    if (prev.permissionMode !== next.permissionMode) await this.query.setPermissionMode(next.permissionMode);
+    const mode = claudePermissionMode(next.permissionMode, this.mode(next));
+    if (mode !== claudePermissionMode(prev.permissionMode, this.mode(prev))) await this.query.setPermissionMode(mode);
     if (prev.effort !== next.effort) await this.query.applyFlagSettings({ effortLevel: next.effort });
   }
 
@@ -185,15 +187,22 @@ export class SdkAgentSession implements AgentSession {
     this.finishTurn({ error: 'session closed' });
   }
 
+  private mode(config: AgentConfig): InteractionMode {
+    return this.ctx.mode?.() ?? config.mode ?? 'build';
+  }
+
   private async fullPrompt(config: AgentConfig, roster: AgentConfig[], cwd: string | undefined): Promise<string> {
-    const role = buildRolePrompt(config, roster);
+    const parts = [buildRolePrompt(config, roster)];
+    const mode = modePrompt(this.mode(config));
+    if (mode) parts.push(mode);
     const extra = cwd && this.ctx.guardrails ? await this.ctx.guardrails.buildPrompt(config, roster, cwd) : '';
-    return extra ? `${role}\n\n${extra}` : role;
+    if (extra) parts.push(extra);
+    return parts.join('\n\n');
   }
 
   private disallowed(config: AgentConfig, roster: AgentConfig[], cwd: string | undefined): string[] {
     const list = ['AskUserQuestion', ...config.disallowedTools];
-    if (config.workspaceMode === 'read-only') list.push(...READ_ONLY_DENY);
+    if (config.workspaceMode === 'read-only' || this.mode(config) === 'ask') list.push(...READ_ONLY_DENY);
     if (cwd && this.ctx.guardrails) list.push(...this.ctx.guardrails.buildDisallowed(config, roster, cwd));
     return [...new Set(list)];
   }
@@ -240,7 +249,7 @@ export class SdkAgentSession implements AgentSession {
     const options: Options = {
       model: config.model,
       effort: config.effort,
-      permissionMode: config.permissionMode,
+      permissionMode: claudePermissionMode(config.permissionMode, this.mode(config)),
       // snapshot: false so edits to the role, roster or guardrails apply when the session resumes.
       systemPrompt: { type: 'preset', preset: 'claude_code', append: prompt, snapshot: false },
       allowedTools: [PASS_TOOL, ...toolSpecs.map((t) => `mcp__${ROOM_SERVER}__${t.name}`), ...config.allowedTools],
@@ -375,6 +384,11 @@ export class SdkAgentSession implements AgentSession {
       this.shutdown();
     }
   }
+}
+
+/** Plan mode rides on the SDK's own plan permission mode; ask relies on the read-only tool list. */
+export function claudePermissionMode(configured: AgentConfig['permissionMode'], mode: InteractionMode): AgentConfig['permissionMode'] {
+  return mode === 'plan' ? 'plan' : configured;
 }
 
 /** Turn vendor error text into something the user can act on. */

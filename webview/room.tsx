@@ -5,16 +5,53 @@ import { post, type State } from './state';
 
 export function Transcript({ state, byId, names, onWelcomeAction }: { state: State; byId: Map<string, AgentView>; names: string[]; onWelcomeAction(action: 'guardrails' | 'help'): void }) {
   const end = useRef<HTMLDivElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const atBottom = useRef(true);
+  const [unseen, setUnseen] = useState(0);
   const roomState = state.roomState;
   const speaking = roomState?.agents.filter((a) => a.status === 'speaking') ?? [];
+  const count = roomState?.messages.length ?? 0;
+  const seenCount = useRef(count);
+
+  // Follow the conversation only while the reader is at the bottom; otherwise count what arrived.
   useEffect(() => {
-    end.current?.scrollIntoView({ block: 'end' });
-  }, [roomState?.messages.length, state.live, speaking.length]);
+    if (atBottom.current) {
+      end.current?.scrollIntoView({ block: 'end' });
+      seenCount.current = count;
+      setUnseen(0);
+    } else {
+      setUnseen(Math.max(0, count - seenCount.current));
+    }
+  }, [count, state.live, speaking.length]);
+
+  const onScroll = () => {
+    const el = scroller.current;
+    if (!el) return;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+    atBottom.current = near;
+    if (near) {
+      seenCount.current = count;
+      setUnseen(0);
+    }
+  };
+
+  const jump = () => {
+    atBottom.current = true;
+    end.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
+    seenCount.current = count;
+    setUnseen(0);
+  };
 
   if (!roomState) return <div className="empty">No room yet. Create one from the sidebar or the room switcher.</div>;
 
   return (
-    <div className="transcript">
+    <div className="transcript-wrap">
+      {!atBottom.current && (unseen > 0 || speaking.length > 0) && (
+        <button className="jump" onClick={jump} title="Scroll to the latest message">
+          ↓ {unseen > 0 ? `${unseen} new` : 'latest'}
+        </button>
+      )}
+    <div className="transcript" ref={scroller} onScroll={onScroll}>
       {roomState.messages.length === 0 && <Welcome state={state} onAction={onWelcomeAction} />}
       {roomState.messages.map((m) => (
         <Message key={m.id} message={m} agent={byId.get(m.from)} names={names} />
@@ -32,6 +69,7 @@ export function Transcript({ state, byId, names, onWelcomeAction }: { state: Sta
         );
       })}
       <div ref={end} />
+    </div>
     </div>
   );
 }

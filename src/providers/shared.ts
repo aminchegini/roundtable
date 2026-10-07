@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { resolveBin } from '../guardrails/runner';
 import { buildRolePrompt } from '../room/SdkAgentSession';
-import type { AgentConfig, Tokens } from '../shared/protocol';
+import type { AgentConfig, InteractionMode, Tokens } from '../shared/protocol';
 import type { SessionContext } from './types';
 
 export function home(...parts: string[]): string {
@@ -28,12 +28,39 @@ export function findBin(...names: string[]): string | undefined {
   return undefined;
 }
 
+/** The "mother prompt" for a mode; empty for build. Enforced by tools too, this is the explanation the model sees. */
+export function modePrompt(mode: InteractionMode): string {
+  switch (mode) {
+    case 'ask':
+      return [
+        '## Mode: ASK',
+        'You are in ASK mode. Answer questions, explain, review and advise.',
+        'Do not create, modify or delete files; do not run commands that change state (installs, builds that write, git commit/push, deployments); do not commit.',
+        'If someone asks for a change, describe it in your reply — with the code — instead of making it. Reading files and running read-only commands is fine.',
+      ].join('\n');
+    case 'plan':
+      return [
+        '## Mode: PLAN',
+        'You are in PLAN mode. Investigate the codebase, then produce a concrete plan: numbered steps, files to touch, risks, open questions.',
+        'Make no changes. If the user approves the plan they will switch you to build mode.',
+      ].join('\n');
+    default:
+      return '';
+  }
+}
+
+export function currentMode(ctx: SessionContext, agent: AgentConfig): InteractionMode {
+  return ctx.mode?.() ?? agent.mode ?? 'build';
+}
+
 /**
  * Role prompt + guardrails + text protocol for providers without an SDK
  * system-prompt hook. Sent as the first user message of a new session.
  */
 export async function buildFullPrompt(agent: AgentConfig, roster: AgentConfig[], cwd: string | undefined, ctx: SessionContext): Promise<string> {
   const parts = [buildRolePrompt(agent, roster, 'reply with exactly the single word PASS')];
+  const mode = modePrompt(currentMode(ctx, agent));
+  if (mode) parts.push(mode);
   if (cwd && ctx.guardrails) {
     const extra = await ctx.guardrails.buildPrompt(agent, roster, cwd);
     if (extra) parts.push(extra);

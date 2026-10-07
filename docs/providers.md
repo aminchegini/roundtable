@@ -47,6 +47,8 @@ Change a model from the roster dropdown, the agent drawer, the tree context menu
 | `plan` / `dontAsk` | SDK semantics | same | `plan` / `default` | rejects prompts | — |
 | `workspaceMode: read-only` | Edit/Write/Bash denied | `sandboxMode: read-only` | `--approval-mode plan` | edit/shell tools excluded | `--mode ask` |
 | `workspaceMode: worktree` | own git worktree | own git worktree | own git worktree | own git worktree | own git worktree |
+| `mode: ask` | Edit/Write/Bash tools removed + ask prompt | read-only sandbox + ask prompt | `--approval-mode plan` + ask prompt | edit/shell tools excluded + ask prompt | `--mode ask` + ask prompt |
+| `mode: plan` | `permissionMode: plan` (SDK plan mode) + plan prompt | read-only sandbox + plan prompt | `--approval-mode plan` + plan prompt | edit/shell tools excluded + plan prompt | `--mode plan` + plan prompt |
 
 Vendors without approval callbacks (Codex, Gemini, Cursor) never ask you anything mid-turn; the mode selects their sandbox policy instead.
 

@@ -2,7 +2,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { applyCursorEvent, type CursorAcc } from '../src/providers/cursor';
+import { applyCursorEvent, cursorModeArgs, type CursorAcc } from '../src/providers/cursor';
+import { codexSandbox } from '../src/providers/codex';
+import { copilotExcludedTools } from '../src/providers/copilot';
+import { geminiApprovalMode } from '../src/providers/gemini';
+import { modePrompt } from '../src/providers/shared';
+import { claudePermissionMode } from '../src/room/SdkAgentSession';
 import { isResumeError, isSessionError } from '../src/providers/shared';
 import { applyGeminiEvent, type TurnAcc } from '../src/providers/gemini';
 import { PROVIDERS, ProviderRegistry } from '../src/providers/registry';
@@ -300,6 +305,64 @@ describe('login detection', () => {
       expect(c.state().messages.filter((m) => m.from === 'user')).toHaveLength(2);
       ws.dispose();
     } finally {
+      restore();
+    }
+  });
+});
+
+describe('modes', () => {
+  it('maps ask and plan to each vendor\'s strongest read-only control', () => {
+    expect(claudePermissionMode('default', 'plan')).toBe('plan');
+    expect(claudePermissionMode('acceptEdits', 'ask')).toBe('acceptEdits'); // ask relies on the tool deny list
+    expect(codexSandbox('shared', 'ask')).toBe('read-only');
+    expect(codexSandbox('shared', 'build')).toBe('workspace-write');
+    expect(geminiApprovalMode('shared', 'auto', 'ask')).toBe('plan');
+    expect(geminiApprovalMode('shared', 'auto', 'build')).toBe('yolo');
+    expect(cursorModeArgs('shared', 'auto', 'ask')).toEqual(['--mode', 'ask']);
+    expect(cursorModeArgs('shared', 'auto', 'plan')).toEqual(['--mode', 'plan']);
+    expect(cursorModeArgs('shared', 'auto', 'build')).toEqual(['--force']);
+    expect(copilotExcludedTools('shared', 'plan')).toContain('edit');
+    expect(copilotExcludedTools('shared', 'build')).toBeUndefined();
+    expect(modePrompt('ask')).toMatch(/ASK/);
+    expect(modePrompt('build')).toBe('');
+  });
+
+  it('room mode overrides agent mode and reaches the session; previews are stored', async () => {
+    const restore = patchProvider();
+    const seenModes: string[] = [];
+    fakeProvider.createSession = (agent, _roster, ctx) => {
+      const s = new FakeSession(agent);
+      const run = s.runTurn.bind(s);
+      s.runTurn = async (p) => {
+        seenModes.push(ctx.mode?.() ?? 'none');
+        return run(p);
+      };
+      return s;
+    };
+    try {
+      const { ws } = await openWorkspace(tmpdir());
+      const kit = ws.agents[2]!;
+      await ws.saveAgent({ ...kit, provider: 'cursor', mode: 'plan' });
+      const dm = ws.dmWith(kit.id);
+      const c = ws.controller(dm.id)!;
+      scripts.set(kit.name, ['first', 'second']);
+      c.send('one');
+      await c.room.whenIdle();
+      expect(seenModes).toEqual(['plan']);
+      expect(c.state().agents[0]!.mode).toBe('plan');
+
+      ws.updateRoom(dm.id, { mode: 'ask' });
+      c.send('two');
+      await c.room.whenIdle();
+      expect(seenModes).toEqual(['plan', 'ask']);
+      expect(c.state().agents[0]!.mode).toBe('ask');
+
+      const meta = ws.rooms.get(dm.id)!;
+      expect(meta.lastMessage?.text).toBe('second');
+      expect(meta.lastMessage?.from).toBe(kit.name);
+      ws.dispose();
+    } finally {
+      fakeProvider.createSession = (agent) => new FakeSession(agent);
       restore();
     }
   });

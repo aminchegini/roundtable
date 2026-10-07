@@ -10,6 +10,7 @@ import {
   type AgentView,
   type GuardrailsView,
   type HostToWebview,
+  type InteractionMode,
   type Limits,
   type PermissionDecision,
   type PermissionRequest,
@@ -46,7 +47,7 @@ export interface ControllerDeps {
   log(text: string): void;
   emit(event: ControllerEvent): void;
   /** Called when the room transcript or activity changed (for trees and status bar). */
-  changed(): void;
+  changed(lastMessage?: { from: string; text: string; ts: number }): void;
   /** A turn failed because the vendor wants the user to sign in. */
   loginNeeded(agent: AgentConfig, reason: string): void;
 }
@@ -164,13 +165,17 @@ export class RoomController {
           const status = this.deps.providers.statusOf(config.provider);
           return !!status && (!status.installed || status.authenticated === false);
         },
+        modeOf: (config) => this.modeOf(config),
         emit: (event) => {
           switch (event.type) {
-            case 'message':
+            case 'message': {
               this.deps.emit({ type: 'message', message: event.message });
               void this.persist();
-              this.deps.changed();
+              const m = event.message;
+              const from = m.from === 'user' ? 'You' : m.from === 'system' ? '' : (this.deps.agents().find((a) => a.id === m.from)?.name ?? '');
+              this.deps.changed(m.from === 'system' ? undefined : { from, text: m.text, ts: m.ts });
               break;
+            }
             case 'agents':
               this.deps.emit({ type: 'agents', agents: this.agentViews() });
               this.deps.changed();
@@ -225,6 +230,24 @@ export class RoomController {
     return this.deps.meta().limits ?? DEFAULT_LIMITS;
   }
 
+  /** Room mode overrides the agent's own; the live agent config is looked up so edits apply next turn. */
+  modeOf(config: AgentConfig): InteractionMode {
+    const live = this.deps.agents().find((a) => a.id === config.id) ?? config;
+    return this.deps.meta().mode ?? live.mode ?? 'build';
+  }
+
+  pause(): void {
+    this.room.pause();
+  }
+
+  resume(): void {
+    this.room.resume();
+  }
+
+  skipAgent(id: string): Promise<void> {
+    return this.room.skipAgent(id);
+  }
+
   guardrailsView(): GuardrailsView {
     return this.deps.registry ? this.deps.registry.view(this.deps.agents(), this.deps.meta().guardrails) : emptyGuardrailsView();
   }
@@ -249,6 +272,7 @@ export class RoomController {
       env: this.deps.env,
       resumeId: this.deps.storage.getSessions()[config.id],
       guardrails: this.runtime,
+      mode: () => this.modeOf(config),
       claudePath: this.deps.claudePath,
       onEvent: (event) => {
         if (event.type === 'partial') this.deps.emit({ type: 'partial', agentId: config.id, text: event.text });

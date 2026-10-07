@@ -1,7 +1,7 @@
 import { GuardrailRegistry, emptyGuardrailsView } from '../guardrails/registry';
 import { ProcessRunner } from '../guardrails/runner';
 import { ProviderRegistry, getProvider } from '../providers/registry';
-import type { AgentConfig, AgentView, GuardrailsFile, GuardrailsView, ProviderId, RoomMeta, RoomsView } from '../shared/protocol';
+import type { AgentConfig, AgentView, GuardrailsFile, GuardrailsView, InteractionMode, ProviderId, RoomMeta, RoomsView } from '../shared/protocol';
 import { blankAgent, defaultAgents, loadAgents, saveAgents } from './config';
 import { RoomController, type ControllerEvent } from './RoomController';
 import type { RoomSnapshot } from './Room';
@@ -126,7 +126,7 @@ export class Workspace {
   }
 
   agentViews(): AgentView[] {
-    return this.agents.map((config) => ({ config, status: 'idle', costUsd: 0, tokens: { input: 0, output: 0 }, billing: 'unknown' }));
+    return this.agents.map((config) => ({ config, status: 'idle', costUsd: 0, tokens: { input: 0, output: 0 }, billing: 'unknown', mode: config.mode ?? 'build' }));
   }
 
   async addAgent(provider: ProviderId = 'claude', model?: string): Promise<AgentConfig> {
@@ -190,10 +190,20 @@ export class Workspace {
     await this.controllers.get(roomId)?.syncParticipants();
   }
 
-  /** Room settings: limits, rounds, custom guardrails. */
+  /** Room settings: limits, rounds, custom guardrails, mode. */
   updateRoom(roomId: string, patch: Parameters<RoomStore['patch']>[1]): void {
     this.rooms.patch(roomId, patch);
     this.controllers.get(roomId)?.settingsChanged();
+  }
+
+  /** Change one agent's own mode (a room mode still overrides it). */
+  async setAgentMode(agentId: string, mode: InteractionMode | undefined): Promise<void> {
+    const agent = this.agents.find((a) => a.id === agentId);
+    if (!agent) return;
+    const next = { ...agent };
+    if (mode) next.mode = mode;
+    else delete next.mode;
+    await this.saveAgent(next);
   }
 
   async deleteRoom(roomId: string): Promise<void> {
@@ -238,8 +248,8 @@ export class Workspace {
       emit: (event) => {
         for (const l of this.controllerEvents.get(roomId) ?? []) l(event);
       },
-      changed: () => {
-        this.rooms.touch(roomId);
+      changed: (lastMessage) => {
+        this.rooms.touch(roomId, lastMessage);
         this.notify({ type: 'activity', roomId });
       },
       loginNeeded: (agent, reason) => {
@@ -334,9 +344,9 @@ export class Workspace {
   }
 
   /** Roomless summary for trees and the status bar. */
-  activity(roomId: string): { running: boolean; speaker?: string; pending: number } {
+  activity(roomId: string): { running: boolean; paused: boolean; speaker?: string; pending: number } {
     const c = this.controllers.get(roomId);
-    return { running: c?.running ?? false, speaker: c?.speaker?.name, pending: c?.pendingPermissions ?? 0 };
+    return { running: c?.running ?? false, paused: c?.room.status.paused ?? false, speaker: c?.speaker?.name, pending: c?.pendingPermissions ?? 0 };
   }
 
   dispose(): void {
