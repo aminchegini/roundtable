@@ -38,6 +38,8 @@ export interface AgentSession {
   applyConfig(next: AgentConfig, roster: AgentConfig[]): Promise<void>;
   /** Restart the underlying session (after its turn, if one is running), keeping history. */
   restart?(): void;
+  /** Drop the vendor session entirely (stored id included); the next turn starts fresh with instructions. */
+  forget?(): void;
   dispose(): void;
 }
 

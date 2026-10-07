@@ -165,6 +165,11 @@ export class SdkAgentSession implements AgentSession {
     else this.shutdown();
   }
 
+  forget(): void {
+    this.sessionId = undefined;
+    this.shutdown();
+  }
+
   dispose(): void {
     this.disposed = true;
     this.shutdown();

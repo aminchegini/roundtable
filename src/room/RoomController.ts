@@ -2,6 +2,7 @@ import type { GuardrailRegistry } from '../guardrails/registry';
 import type { GuardrailRuntime } from '../guardrails/runtime';
 import { getProvider, type ProviderRegistry } from '../providers/registry';
 import { isAuthError, type SessionContext } from '../providers/types';
+import { isSessionError } from '../providers/shared';
 import { describeToolUse } from './SdkAgentSession';
 import {
   DEFAULT_LIMITS,
@@ -86,6 +87,45 @@ class GatedSession implements AgentSession {
   }
   restart() {
     this.inner.restart?.();
+  }
+  forget() {
+    this.inner.forget?.();
+  }
+  dispose() {
+    this.inner.dispose();
+  }
+}
+
+/**
+ * Provider-agnostic self-healing: when a turn fails because the vendor session
+ * itself is broken (unresumable id, dead process, transport), forget the
+ * session and retry the turn once on a fresh one. Auth failures and user
+ * interrupts pass through untouched.
+ */
+class RecoveringSession implements AgentSession {
+  constructor(
+    private readonly inner: AgentSession,
+    private readonly onForget: (reason: string) => void,
+  ) {}
+
+  async runTurn(prompt: string): Promise<TurnResult> {
+    const first = await this.inner.runTurn(prompt).catch((err) => ({ text: '', passed: false, costUsd: 0, error: err instanceof Error ? err.message : String(err) }) as TurnResult);
+    if (!first.error || isAuthError(first.error) || !isSessionError(first.error) || !this.inner.forget) return first;
+    this.onForget(first.error);
+    this.inner.forget();
+    return this.inner.runTurn(prompt);
+  }
+  interrupt() {
+    return this.inner.interrupt();
+  }
+  applyConfig(next: AgentConfig, roster: AgentConfig[]) {
+    return this.inner.applyConfig(next, roster);
+  }
+  restart() {
+    this.inner.restart?.();
+  }
+  forget() {
+    this.inner.forget?.();
   }
   dispose() {
     this.inner.dispose();
@@ -222,18 +262,24 @@ export class RoomController {
       },
       requestPermission: (toolName, input, canAlways, signal) => this.requestPermission(config.id, toolName, input, canAlways, signal),
     };
-    const session = provider.createSession(config, roster, ctx);
+    let session: AgentSession = provider.createSession(config, roster, ctx);
     if (provider.enforcement === 'gates' && this.runtime) {
-      const runtime = this.runtime;
-      return new GatedSession(
+      session = new GatedSession(
         session,
         () => this.participants().find((a) => a.id === config.id) ?? config,
         () => this.participants(),
-        runtime,
+        this.runtime,
         () => this.deps.resolveCwd(config),
       );
     }
-    return session;
+    return new RecoveringSession(session, (reason) => {
+      // Drop the stored id so a reload does not try the dead session again.
+      const sessions = { ...this.deps.storage.getSessions() };
+      delete sessions[config.id];
+      void this.deps.storage.setSessions(sessions);
+      this.deps.log(`[${this.deps.meta().name}/${config.name}] session lost (${reason.split('\n')[0]}); starting fresh`);
+      this.deps.emit({ type: 'activity', agentId: config.id, text: 'previous session lost; starting a fresh one' });
+    });
   }
 
   // ---- views ----

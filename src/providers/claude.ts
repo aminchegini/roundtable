@@ -30,6 +30,9 @@ class LazyClaudeSession {
   restart() {
     void this.inner.then((s) => s.restart());
   }
+  forget() {
+    void this.inner.then((s) => s.forget());
+  }
   dispose() {
     void this.inner.then((s) => s.dispose());
   }

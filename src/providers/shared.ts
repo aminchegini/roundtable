@@ -130,6 +130,22 @@ export function addTokens(total: Tokens, input: number | undefined, output: numb
   return { input: total.input + (input ?? 0), output: total.output + (output ?? 0) };
 }
 
+/** The vendor could not find the session/thread we asked it to resume. */
+export function isResumeError(text: string | undefined): boolean {
+  return !!text && /thread\/resume|no rollout found|session (id )?.*not found|unknown session|no conversation found|could not (find|resume) (the )?(session|chat|thread)|no (such|saved) (session|chat|thread)|resume.*(failed|invalid)/i.test(text);
+}
+
+/**
+ * A failure of the session itself rather than of the request: lost or
+ * unresumable session, dead CLI process, broken transport. Worth one retry on
+ * a fresh session. Auth problems and user interrupts are not.
+ */
+export function isSessionError(text: string | undefined): boolean {
+  if (!text || text === 'interrupted') return false;
+  if (isResumeError(text)) return true;
+  return /session (ended|closed)( unexpectedly)?|session closed|process exited|exited with code|spawn .*ENOENT|EPIPE|ECONNRESET|ECONNREFUSED|socket hang up|transport (closed|error)|stream (ended|closed) unexpectedly|without completing it|runtime (start )?timed out|request timed out/i.test(text);
+}
+
 export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }

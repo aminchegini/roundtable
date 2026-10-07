@@ -156,6 +156,13 @@ export class CopilotAgentSession implements AgentSession {
     this.primed = false;
   }
 
+  forget(): void {
+    this.sessionId = undefined;
+    this.session = undefined;
+    this.recreate = false;
+    this.primed = false;
+  }
+
   dispose(): void {
     this.disposed = true;
     void this.session?.abort().catch(() => undefined);

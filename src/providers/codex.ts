@@ -142,6 +142,13 @@ export class CodexAgentSession implements AgentSession {
     this.primed = false;
   }
 
+  forget(): void {
+    this.threadId = undefined;
+    this.thread = undefined;
+    this.recreate = false;
+    this.primed = false;
+  }
+
   dispose(): void {
     this.disposed = true;
     this.abort?.abort();

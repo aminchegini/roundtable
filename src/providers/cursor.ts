@@ -109,6 +109,11 @@ export class CursorAgentSession implements AgentSession {
     this.primed = false;
   }
 
+  forget(): void {
+    this.sessionId = undefined;
+    this.primed = false;
+  }
+
   dispose(): void {
     this.disposed = true;
     this.abort?.abort();
