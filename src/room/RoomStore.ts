@@ -80,6 +80,24 @@ export class RoomStore {
     return deleted;
   }
 
+  /** Update room-level settings (limits, rounds, custom guardrails). `null` clears a field. */
+  patch(id: string, patch: { limits?: RoomMeta['limits']; maxRounds?: number | null; guardrails?: RoomMeta['guardrails'] | null; name?: string }): void {
+    this.update(id, (r) => {
+      const next = { ...r };
+      if (patch.limits !== undefined) next.limits = patch.limits;
+      if (patch.maxRounds !== undefined) {
+        if (patch.maxRounds === null) delete next.maxRounds;
+        else next.maxRounds = patch.maxRounds;
+      }
+      if (patch.guardrails !== undefined) {
+        if (patch.guardrails === null) delete next.guardrails;
+        else next.guardrails = patch.guardrails;
+      }
+      if (patch.name?.trim()) next.name = patch.name.trim();
+      return next;
+    });
+  }
+
   touch(id: string): void {
     this.update(id, (r) => ({ ...r, lastActivity: Date.now() }));
   }

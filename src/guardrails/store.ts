@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { z } from 'zod';
+import type { GuardrailOverrides } from '../shared/protocol';
 import type { GuardrailDef, GuardrailsFile, Preset, ProjectProfile } from './types';
 
 export { selectPreset, setGuardrailConfig, toggleGuardrail } from '../shared/guardrailsFile';
@@ -50,20 +51,26 @@ export function resolveGuardrails(
   presets: Preset[],
   catalog: GuardrailDef[],
   profile: ProjectProfile,
+  /** Agent-level forcing: `disabled` removes, `enabled` adds or reconfigures. */
+  overrides?: GuardrailOverrides,
 ): EffectiveGuardrail[] {
   const preset = presets.find((p) => p.id === file.preset);
   const ids = new Set<string>([...Object.keys(preset?.guardrails ?? {}), ...Object.keys(file.enabled)]);
   for (const id of file.disabled) ids.delete(id);
+  for (const id of overrides?.disabled ?? []) ids.delete(id);
+  for (const id of Object.keys(overrides?.enabled ?? {})) ids.add(id);
 
   const result: EffectiveGuardrail[] = [];
   for (const def of catalog) {
     if (!ids.has(def.id) || !def.appliesTo(profile)) continue;
     const presetOverride = preset?.guardrails[def.id];
     const userOverride = file.enabled[def.id];
+    const agentOverride = overrides?.enabled[def.id];
     const config = {
       ...(def.defaults(profile) as Record<string, unknown>),
       ...(typeof presetOverride === 'object' ? presetOverride : {}),
       ...(typeof userOverride === 'object' ? userOverride : {}),
+      ...(typeof agentOverride === 'object' ? agentOverride : {}),
     };
     result.push({ def, config });
   }

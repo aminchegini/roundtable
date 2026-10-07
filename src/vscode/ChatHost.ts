@@ -51,6 +51,8 @@ export class ChatHost implements vscode.Disposable {
             break;
           case 'guardrails':
             this.send({ type: 'guardrails', guardrails: workspace.guardrailsView() });
+            // The room's own view may inherit the workspace file.
+            this.sendState();
             break;
           case 'navigate':
             this.send({ type: 'navigate', view: event.view });
@@ -154,6 +156,10 @@ export class ChatHost implements vscode.Disposable {
         return;
       case 'setParticipants':
         await ws.setParticipants(m.id, m.agentIds);
+        return;
+      case 'updateRoom':
+        ws.updateRoom(m.id, m.patch);
+        if (m.id === this.activeRoomId) this.sendState();
         return;
       case 'openInEditor':
         this.actions.openInEditor();

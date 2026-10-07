@@ -88,6 +88,7 @@
         send({ type: 'state', location: new URLSearchParams(location.search).get('loc') || 'editor',
           roomState: { agents, messages, room: { running: true, round: 0, maxRounds: 6, costUsd: 0.32, apiCostUsd: 0, billing: 'subscription', quota: { window: '5h', usedPercent: 38, agentName: 'Ada' }, tokens: { input: 27000, output: 4200 }, budgetUsd: 2, locks: { review: 'awaiting reviewer approval' } },
             permissions: [{ requestId: '1', agentId: 'rex', toolName: 'Bash', detail: 'Bash: grep -rn "SessionStore" src/', canAlways: true }],
+            limits: { allowApi: false, apiBudgetUsd: 0, quotaStopPercent: 0, maxTokens: 0 }, maxRounds: 6, guardrails, inheritsGuardrails: true,
             spec: { status: 'pending', agentName: 'Ada', markdown: '## Requirements\n- Session cache behind `SessionStore`\n\n## Design\nIn-process map, interface in `src/shared`.\n\n## Tasks\n1. Add interface\n2. Add MemoryStore\n3. Tests' } },
           allAgents: agents, rooms, providers, guardrails });
         send({ type: 'partial', agentId: 'rex', text: 'Deploys wipe an in-process cache, so every release logs everyone out. Is that acceptable for `v1`?' });

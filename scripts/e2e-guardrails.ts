@@ -11,7 +11,7 @@ import { GuardrailRuntime } from '../src/guardrails/runtime';
 import { resolveGuardrails } from '../src/guardrails/store';
 import { Room } from '../src/room/Room';
 import { getProvider } from '../src/providers/registry';
-import type { AgentConfig } from '../src/shared/protocol';
+import { DEFAULT_LIMITS, type AgentConfig } from '../src/shared/protocol';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'roundtable-e2e-gr-'));
 fs.mkdirSync(path.join(root, 'src'));
@@ -77,7 +77,7 @@ runtime.buildHooks = (agent, roster, cwd) => {
 
 room = new Room(
   {
-    getCaps: () => ({ maxRounds: 1, budgetUsd: 1 }),
+    getCaps: () => ({ maxRounds: 1, limits: { ...DEFAULT_LIMITS, allowApi: true } }),
     emit: (e) => {
       if (e.type === 'message') console.log(`\n<${e.message.from}> ${e.message.text}`);
       if (e.type === 'user-message') runtime.onUserMessage();

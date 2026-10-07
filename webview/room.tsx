@@ -165,6 +165,11 @@ function Welcome({ state, onAction }: { state: State; onAction(action: 'guardrai
       )}
       {agents.length === 0 && <p className="warn-text">This room has no agents. Add some with the participants button in the header.</p>}
       {unavailable.length === 0 && agents.length > 0 && <p className="hint">All providers in this room are signed in. Type below to start.</p>}
+      {state.roomState && !state.roomState.limits.allowApi && (
+        <p className="hint">
+          API-billed agents are <b>off</b> in this room (default) — agents on subscriptions run normally. Turn metered usage on in ⚙ Room settings if you want it, and set a budget.
+        </p>
+      )}
       <div className="row">
         <button className="secondary small" onClick={() => onAction('guardrails')}>
           Guardrails · {guardrailCount} active

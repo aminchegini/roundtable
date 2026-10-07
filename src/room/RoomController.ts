@@ -3,17 +3,21 @@ import type { GuardrailRuntime } from '../guardrails/runtime';
 import { getProvider, type ProviderRegistry } from '../providers/registry';
 import { isAuthError, type SessionContext } from '../providers/types';
 import { describeToolUse } from './SdkAgentSession';
-import type {
-  AgentConfig,
-  AgentView,
-  HostToWebview,
-  PermissionDecision,
-  PermissionRequest,
-  RoomMeta,
-  RoomState,
-  RoomStatus,
-  SpecView,
+import {
+  DEFAULT_LIMITS,
+  type AgentConfig,
+  type AgentView,
+  type GuardrailsView,
+  type HostToWebview,
+  type Limits,
+  type PermissionDecision,
+  type PermissionRequest,
+  type RoomMeta,
+  type RoomState,
+  type RoomStatus,
+  type SpecView,
 } from '../shared/protocol';
+import { emptyGuardrailsView } from '../guardrails/registry';
 import { Room, type AgentSession, type RoomCaps, type RoomSnapshot, type TurnResult } from './Room';
 
 /** Messages a controller emits; the chat host forwards them when the room is the active one. */
@@ -32,7 +36,8 @@ export interface ControllerDeps {
   agents(): AgentConfig[];
   registry: GuardrailRegistry | undefined;
   providers: ProviderRegistry;
-  caps(): RoomCaps;
+  /** Workspace defaults; the room's own settings override them. */
+  defaults(): { maxRounds: number };
   storage: ControllerStorage;
   env: Record<string, string | undefined>;
   claudePath: string | undefined;
@@ -96,16 +101,29 @@ export class RoomController {
   private nextPermissionId = 1;
 
   constructor(private readonly deps: ControllerDeps) {
-    this.runtime = deps.registry?.createRuntime({
-      report: (text) => this.room.postSystem(text),
-      stateChanged: () => {
-        this.deps.emit({ type: 'room', room: this.status() });
-        this.deps.emit({ type: 'spec', spec: this.specView() });
+    this.runtime = deps.registry?.createRuntime(
+      {
+        report: (text) => this.room.postSystem(text),
+        stateChanged: () => {
+          this.deps.emit({ type: 'room', room: this.status() });
+          this.deps.emit({ type: 'spec', spec: this.specView() });
+        },
       },
-    });
+      () => this.deps.meta().guardrails,
+    );
     this.room = new Room(
       {
-        getCaps: () => deps.caps(),
+        getCaps: () => this.caps(),
+        billingHint: (config) => {
+          // Env-key presence is a reliable API signal before the session reports anything.
+          const env = this.deps.env;
+          const key = { claude: env.ANTHROPIC_API_KEY, codex: env.CODEX_API_KEY, gemini: env.GEMINI_API_KEY ?? env.GOOGLE_API_KEY, copilot: undefined, cursor: env.CURSOR_API_KEY }[config.provider];
+          return key ? 'api' : 'unknown';
+        },
+        unavailable: (config) => {
+          const status = this.deps.providers.statusOf(config.provider);
+          return !!status && (!status.installed || status.authenticated === false);
+        },
         emit: (event) => {
           switch (event.type) {
             case 'message':
@@ -156,6 +174,27 @@ export class RoomController {
 
   get id(): string {
     return this.deps.meta().id;
+  }
+
+  caps(): RoomCaps {
+    const meta = this.deps.meta();
+    return { maxRounds: meta.maxRounds ?? this.deps.defaults().maxRounds, limits: meta.limits ?? DEFAULT_LIMITS };
+  }
+
+  private limits(): Limits {
+    return this.deps.meta().limits ?? DEFAULT_LIMITS;
+  }
+
+  guardrailsView(): GuardrailsView {
+    return this.deps.registry ? this.deps.registry.view(this.deps.agents(), this.deps.meta().guardrails) : emptyGuardrailsView();
+  }
+
+  /** Room settings changed: re-resolve guardrails if needed and refresh. */
+  settingsChanged(): void {
+    if (this.runtime) this.deps.registry?.roomFileChanged(this.runtime);
+    this.room.restartAll();
+    this.deps.emit({ type: 'room', room: this.status() });
+    this.deps.emit({ type: 'agents', agents: this.agentViews() });
   }
 
   participants(): AgentConfig[] {
@@ -223,6 +262,10 @@ export class RoomController {
       room: this.status(),
       permissions: [...this.permissions.values()].map((p) => p.request),
       spec: this.specView(),
+      limits: this.limits(),
+      maxRounds: this.caps().maxRounds,
+      guardrails: this.guardrailsView(),
+      inheritsGuardrails: !this.deps.meta().guardrails,
     };
   }
 

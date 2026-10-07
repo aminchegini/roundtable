@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { Room, type AgentSession } from '../src/room/Room';
 import { getProvider } from '../src/providers/registry';
-import type { AgentConfig } from '../src/shared/protocol';
+import { DEFAULT_LIMITS, type AgentConfig } from '../src/shared/protocol';
 
 const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'roundtable-e2e-'));
 const claudePath = [path.join(os.homedir(), '.local/bin/claude')].find((p) => fs.existsSync(p));
@@ -31,7 +31,7 @@ function agent(name: string, role: string): AgentConfig {
 const sessions = new Map<string, AgentSession>();
 const room = new Room(
   {
-    getCaps: () => ({ maxRounds: 2, budgetUsd: 1 }),
+    getCaps: () => ({ maxRounds: 2, limits: { ...DEFAULT_LIMITS, allowApi: true } }),
     emit: (e) => {
       if (e.type === 'message') console.log(`\n<${e.message.from}> ${e.message.text}`);
     },

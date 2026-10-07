@@ -1030,3 +1030,95 @@ kbd {
 .app.narrow .suggestions {
   left: 12px;
 }
+
+/* fields with hints, room settings, agent guardrails */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field.inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.field.inline input[type='checkbox'] {
+  width: auto;
+}
+
+.field.inline .hint {
+  flex-basis: 100%;
+}
+
+.field-label {
+  font-size: 0.9em;
+  color: var(--vscode-foreground);
+}
+
+.limits {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.drawer-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+
+.panel-embedded {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel-embedded section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.panel-embedded h3 {
+  margin: 0;
+  font-size: 0.9em;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.hint.note {
+  padding: 6px 8px;
+  border-left: 3px solid var(--vscode-focusBorder);
+}
+
+.agent-guardrails {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-guardrail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agent-guardrail-row select {
+  width: auto;
+}
+
+.chip.benched {
+  opacity: 0.6;
+}
+
+.bench {
+  font-size: 0.8em;
+}

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import type { AgentView, RoomMeta, RoomStatus } from '../src/shared/protocol';
 import { Drawer, Guardrails, Help, ProviderBadge, available, providerOf } from './panels';
 import { PermissionCard, SpecCard, Transcript } from './room';
+import { RoomSettings } from './settings';
 import { initial, post, reduce, type State, type View } from './state';
 import './styles.css';
 
@@ -50,7 +51,9 @@ function App() {
       <main className="main">
         <Header state={state} room={room} agents={agents} view={state.view} onView={setView} onEditAgent={setEditing} narrow={narrow} />
         {state.view === 'guardrails' ? (
-          <Guardrails view={state.guardrails} providers={state.providers} />
+          <Guardrails view={roomState?.guardrails ?? state.guardrails} providers={state.providers} onSave={room?.guardrails ? (file) => post({ type: 'updateRoom', id: room.id, patch: { guardrails: file } }) : undefined} />
+        ) : state.view === 'room-settings' && room ? (
+          <RoomSettings key={room.id + JSON.stringify(room.limits) + String(room.maxRounds) + String(!!room.guardrails)} state={state} room={room} />
         ) : state.view === 'help' ? (
           <Help providers={state.providers} />
         ) : (
@@ -65,7 +68,14 @@ function App() {
         )}
       </main>
       {editingAgent && (
-        <Drawer key={editingAgent.config.id} agent={editingAgent} providers={state.providers} canRemove={state.allAgents.length > 1} onClose={() => setEditing(undefined)} />
+        <Drawer
+          key={editingAgent.config.id}
+          agent={editingAgent}
+          providers={state.providers}
+          canRemove={state.allAgents.length > 1}
+          roomGuardrails={roomState?.guardrails ?? state.guardrails}
+          onClose={() => setEditing(undefined)}
+        />
       )}
     </div>
   );
@@ -151,7 +161,10 @@ function Header(props: {
                 Stop
               </button>
             )}
-            <button className="ghost small" title="Guardrails" onClick={() => props.onView('guardrails')}>
+            <button className="ghost small" title="Room settings: rounds, limits, guardrails" onClick={() => props.onView('room-settings')}>
+              ⚙
+            </button>
+            <button className="ghost small" title="Guardrails for this room" onClick={() => props.onView('guardrails')}>
               ⛨ {guardrailCount}
               {needsSetup ? ' ⚠' : ''}
             </button>
@@ -168,10 +181,16 @@ function Header(props: {
       {view === 'room' && room && (
         <div className="header-row participants">
           {agents.map((a) => (
-            <button key={a.config.id} className={`chip ${a.status}`} title={`${a.config.name} · ${a.config.model} — click for settings`} onClick={() => props.onEditAgent(a.config.id)}>
+            <button
+              key={a.config.id}
+              className={`chip ${a.status} ${a.benched ? 'benched' : ''}`}
+              title={`${a.config.name} · ${a.config.model}${a.benched ? ` — sitting out: ${benchText(a.benched)}` : ''} — click for settings`}
+              onClick={() => props.onEditAgent(a.config.id)}
+            >
               <span className="dot" style={{ background: a.config.color }} />
               {a.config.name}
               <ProviderBadge provider={providerOf(state.providers, a.config.provider)} />
+              {a.benched && <span className="bench">⏸</span>}
             </button>
           ))}
           {room.kind === 'group' && (
@@ -191,6 +210,9 @@ function Header(props: {
           </button>
           <button className="ghost" onClick={() => { setName(room.name); setRenaming(true); setMenu('none'); }}>
             Rename room
+          </button>
+          <button className="ghost" onClick={() => { props.onView('room-settings'); setMenu('none'); }}>
+            Room settings…
           </button>
           {state.location === 'sidebar' && (
             <button className="ghost" onClick={() => { post({ type: 'openInEditor' }); setMenu('none'); }}>
@@ -245,6 +267,16 @@ function BillingMeter({ status, tokensOnly }: { status: RoomStatus; tokensOnly: 
       {tok || (tokensOnly ? '—' : 'billing: pending')}
     </span>
   );
+}
+
+function benchText(reason: NonNullable<AgentView['benched']>): string {
+  return {
+    'api-not-allowed': 'API usage is off (room or agent setting)',
+    'api-budget': 'its API budget is used up',
+    quota: 'its plan window is past the stop threshold',
+    tokens: 'its token cap is reached',
+    'provider-unavailable': 'its vendor is not installed or signed out',
+  }[reason];
 }
 
 function fmtTokens(n: number): string {
@@ -379,7 +411,7 @@ function Roster(props: { agents: AgentView[]; state: State; selected: string | u
                   <ProviderBadge provider={provider} />
                 </span>
                 <span className="agent-meta">
-                  {a.status === 'speaking' ? 'speaking…' : a.status === 'error' ? 'error' : agentBilling(a)} · {a.config.effort}
+                  {a.status === 'speaking' ? 'speaking…' : a.status === 'error' ? 'error' : a.benched ? `⏸ ${benchText(a.benched)}` : agentBilling(a)} · {a.config.effort}
                 </span>
               </span>
             </button>

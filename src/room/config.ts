@@ -19,6 +19,10 @@ const agentSchema = z.object({
   reviewer: z.boolean().optional(),
   canEditProtected: z.boolean().optional(),
   pinned: z.boolean().optional(),
+  limits: z
+    .object({ allowApi: z.boolean(), apiBudgetUsd: z.number().min(0), quotaStopPercent: z.number().min(0).max(100), maxTokens: z.number().min(0) })
+    .optional(),
+  guardrails: z.object({ enabled: z.record(z.string(), z.union([z.literal(true), z.record(z.string(), z.unknown())])), disabled: z.array(z.string()) }).optional(),
 });
 
 const fileSchema = z.object({ agents: z.array(agentSchema) });
